@@ -195,6 +195,11 @@ button {
   box-shadow: 0 0 0 4px rgba(19, 166, 113, 0.1);
 }
 
+.live-state.is-demo .live-dot {
+  background: #d99a18;
+  box-shadow: 0 0 0 4px rgba(217, 154, 24, 0.12);
+}
+
 .operator {
   gap: 8px;
   padding-left: 14px;
@@ -928,11 +933,19 @@ button {
 
 .action-row {
   display: grid;
-  grid-template-columns: 26px 1fr auto;
+  grid-template-columns: 16px 26px 1fr auto;
   align-items: center;
   gap: 9px;
   padding: 9px 0;
   border-top: 1px solid #eff0f3;
+}
+
+.action-row > input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--blue);
+  cursor: pointer;
 }
 
 .action-index {

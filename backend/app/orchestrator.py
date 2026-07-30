@@ -4,7 +4,10 @@ from time import perf_counter
 from typing import Any, TypedDict
 from uuid import uuid4
 
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, StateGraph
+from langgraph.types import Command, interrupt
 
 from .schemas import (
     AnalysisResult,
@@ -42,10 +45,30 @@ class GraphState(TypedDict, total=False):
     review: ReviewResult
     trace: list[TraceEvent]
     revision_count: int
+    approval: dict[str, Any]
+
+
+CHECKPOINT_SCHEMA_TYPES = [
+    ("app.schemas", name)
+    for name in (
+        "AnalyzeRequest",
+        "CaseState",
+        "TraceEvent",
+        "TriageResult",
+        "RiskSeverity",
+        "RiskSignal",
+        "EvidencePacket",
+        "EvidenceItem",
+        "CopilotResult",
+        "RecommendedAction",
+        "ReviewResult",
+        "ReviewViolation",
+    )
+]
 
 
 class CarePulseOrchestrator:
-    def __init__(self) -> None:
+    def __init__(self, checkpointer: Any | None = None) -> None:
         self.sanitizer = SanitizationService()
         self.triage = TriageAgent()
         self.risk = RiskSignalEngine()
@@ -53,6 +76,9 @@ class CarePulseOrchestrator:
         self.copilot = CopilotAgent()
         self.validator = DeterministicValidator()
         self.reviewer = ReviewAgent()
+        self.checkpointer = checkpointer or MemorySaver(
+            serde=JsonPlusSerializer(allowed_msgpack_modules=CHECKPOINT_SCHEMA_TYPES)
+        )
         self.graph = self._build_graph()
 
     def _trace(
@@ -156,8 +182,17 @@ class CarePulseOrchestrator:
 
     async def _review(self, state: GraphState) -> GraphState:
         started = perf_counter()
-        violations = self.validator.validate(state["copilot"])
-        review = await self.reviewer.run(state["copilot"], violations)
+        violations = self.validator.validate(
+            state["copilot"],
+            state["evidence"],
+            state["triage"].required_evidence,
+        )
+        review = await self.reviewer.run(
+            state["copilot"],
+            state["evidence"],
+            state["risk"],
+            violations,
+        )
         after = (
             CaseState.PENDING_AGENT_APPROVAL
             if review.approved
@@ -195,8 +230,25 @@ class CarePulseOrchestrator:
         return {**state, "copilot": copilot, "revision_count": 1}
 
     async def _human_gate(self, state: GraphState) -> GraphState:
-        # Persisted production graphs can replace this node with langgraph.interrupt().
-        return state
+        approval = interrupt(
+            {
+                "kind": "agent_approval",
+                "run_id": state["run_id"],
+                "case_id": state["case_id"],
+                "risk_severity": state["risk"].severity,
+                "draft_reply": state["copilot"].draft_reply,
+                "actions": [
+                    {
+                        "id": action.action,
+                        "reason": action.reason,
+                        "requires_approval": action.requires_approval,
+                    }
+                    for action in state["copilot"].recommended_actions
+                ],
+            }
+        )
+        target = CaseState(approval["target_state"])
+        return {**state, "approval": approval, "case_state": target}
 
     def _build_graph(self):
         builder = StateGraph(GraphState)
@@ -219,24 +271,15 @@ class CarePulseOrchestrator:
         )
         builder.add_edge("revise", "review")
         builder.add_edge("human_gate", END)
-        return builder.compile()
+        return builder.compile(checkpointer=self.checkpointer)
 
-    async def analyze(
-        self,
-        request: AnalyzeRequest,
-        *,
-        run_id: str | None = None,
-        case_id: str | None = None,
-    ) -> AnalysisResult:
-        initial: GraphState = {
-            "request": request,
-            "run_id": run_id or f"run_{uuid4().hex[:12]}",
-            "case_id": case_id or f"case_{uuid4().hex[:12]}",
-            "case_state": CaseState.OPEN,
-            "trace": [],
-            "revision_count": 0,
-        }
-        state = await self.graph.ainvoke(initial)
+    @staticmethod
+    def _config(run_id: str) -> dict[str, Any]:
+        return {"configurable": {"thread_id": run_id}}
+
+    @staticmethod
+    def result_from_state(state: GraphState) -> AnalysisResult:
+        request = state["request"]
         return AnalysisResult(
             run_id=state["run_id"],
             case_id=state["case_id"],
@@ -252,3 +295,38 @@ class CarePulseOrchestrator:
             revision_count=state["revision_count"],
         )
 
+    def initial_state(
+        self,
+        request: AnalyzeRequest,
+        *,
+        run_id: str | None = None,
+        case_id: str | None = None,
+    ) -> GraphState:
+        return {
+            "request": request,
+            "run_id": run_id or f"run_{uuid4().hex[:12]}",
+            "case_id": case_id or f"case_{uuid4().hex[:12]}",
+            "case_state": CaseState.OPEN,
+            "trace": [],
+            "revision_count": 0,
+        }
+
+    async def analyze(
+        self,
+        request: AnalyzeRequest,
+        *,
+        run_id: str | None = None,
+        case_id: str | None = None,
+    ) -> AnalysisResult:
+        initial = self.initial_state(request, run_id=run_id, case_id=case_id)
+        await self.graph.ainvoke(initial, config=self._config(initial["run_id"]))
+        snapshot = await self.graph.aget_state(self._config(initial["run_id"]))
+        return self.result_from_state(snapshot.values)
+
+    async def resume(self, run_id: str, approval: dict[str, Any]) -> AnalysisResult:
+        await self.graph.ainvoke(
+            Command(resume=approval),
+            config=self._config(run_id),
+        )
+        snapshot = await self.graph.aget_state(self._config(run_id))
+        return self.result_from_state(snapshot.values)

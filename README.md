@@ -9,14 +9,16 @@ CarePulse 是一版“证据驱动的消费者共情客服 Copilot”MVP。它�
 - 风险运行看板：高风险会话、问题类型、承诺健康度、升级队列
 - 可编辑建议回复，以及接受、拒绝、升级的人工作业门
 - FastAPI + Pydantic v2 API
-- LangGraph 有界状态图与最多一次自动修订
+- LangGraph 有界状态图、持久化 checkpoint、真实 `interrupt()` / `Command(resume=...)`
 - 硬规则优先的 `RiskSignalEngine`
 - `asyncio.gather` 并行证据获取
 - REST + SSE 运行进度
-- Typed Adapter、Tool Policy 与幂等 Outbox 骨架
-- SQLAlchemy 2 的案例、Trace、审批和 Outbox 数据模型
+- 统一 Runtime Harness：负责运行、SSE、人工恢复、权限与副作用边界
+- 角色/Scope 审批策略，回复审批与动作审批相互独立
+- PostgreSQL 事务 Outbox、`SKIP LOCKED` Worker、指数退避与死信状态
+- SQLAlchemy 2 的案例、Run/Step/Event、审批、Outbox 与政策向量数据模型
 - Prometheus 指标与结构化日志
-- 三条关键异常路径的自动测试
+- FAQ、退款、安全、证据缺失、权限绕过、interrupt/resume 等工程测试
 - PostgreSQL + pgvector 的 Docker Compose 基线
 
 ## 本地运行
@@ -27,6 +29,14 @@ CarePulse 是一版“证据驱动的消费者共情客服 Copilot”MVP。它�
 npm install
 npm run dev
 ```
+
+若需连接本地 Harness，在前端环境中设置：
+
+```bash
+NEXT_PUBLIC_CAREPULSE_API_URL=http://localhost:8000
+```
+
+没有配置时页面会明确显示“演示模式”，不会声称后端在线，也不会执行副作用。
 
 若在 Windows PowerShell 中运行，可直接使用：
 
@@ -64,4 +74,4 @@ API 文档位于 `http://localhost:8000/docs`，健康检查位于 `http://local
 
 当前三个 Agent 使用确定性结构化 fallback，便于无密钥演示与回归测试。生产接入时，只替换 `TriageAgent`、`CopilotAgent` 和 `ReviewAgent` 的方法体为同一个模型 API 的三套 JSON Schema 调用；风险规则、证据服务、校验器、审批门和副作用队列保持独立。
 
-当前数据适配器与运行存储也采用内存/Mock 实现。接入 CRM、OMS、产品库和 PostgreSQL 时，应保留现有 Pydantic 契约，以免模型层与业务系统耦合。
+本地默认使用内存适配器；`docker compose up --build` 会切换到 PostgreSQL 运行存储与持久化 LangGraph checkpoint，并单独启动 Outbox Worker。CRM、OMS 和产品库仍是可替换的 typed mock adapter。

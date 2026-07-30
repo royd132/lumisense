@@ -1,7 +1,17 @@
 import asyncio
 
+from fastapi import HTTPException
+
+from app.harness import CarePulseHarness
 from app.orchestrator import CarePulseOrchestrator
-from app.schemas import AnalyzeRequest, CaseState, RiskSeverity
+from app.schemas import (
+    AnalyzeRequest,
+    ApprovalRequest,
+    CaseState,
+    Principal,
+    RiskSeverity,
+)
+from app.store import InMemoryRunStore
 
 
 def test_faq_uses_short_low_risk_route():
@@ -48,3 +58,122 @@ def test_adverse_reaction_and_social_threat_force_critical():
         action.action for action in result.copilot.recommended_actions
     }
     assert result.review.approved
+
+
+def test_graph_stops_at_real_interrupt_and_resumes_with_same_thread():
+    async def scenario():
+        store = InMemoryRunStore()
+        harness = CarePulseHarness(store)
+        result = await harness.analyze(
+            AnalyzeRequest(
+                text="用了面霜后脸上红肿，如果不处理我会发到小红书曝光。",
+                order_id="ORDER_2088",
+            )
+        )
+        record = await store.get(result.run_id)
+        assert record is not None
+        assert record.status == "WAITING_APPROVAL"
+        assert result.state == CaseState.PENDING_AGENT_APPROVAL
+
+        approval = await harness.approve(
+            result.case_id,
+            ApprovalRequest(
+                decision="ESCALATE",
+                approved_action_ids=[
+                    "ESCALATE_PRODUCT_SAFETY",
+                    "NOTIFY_DUTY_MANAGER",
+                ],
+            ),
+            Principal(
+                agent_id="supervisor_1",
+                role="SUPERVISOR",
+                scopes={"case:read", "case:approve_reply", "case:approve_action"},
+            ),
+        )
+        assert approval.state == CaseState.ESCALATED
+        assert len(approval.outbox_event_ids) == 2
+        assert (await store.get(result.run_id)).status == "COMPLETED"
+
+    asyncio.run(scenario())
+
+
+def test_required_evidence_is_checked_for_every_declared_type():
+    result = asyncio.run(
+        CarePulseOrchestrator().analyze(
+            AnalyzeRequest(text="玻尿酸精华敏感肌第一次怎么用？")
+        )
+    )
+    evidence_types = {item.evidence_type for item in result.evidence.items}
+    assert {"PRODUCT", "CLAIM_POLICY"} <= evidence_types
+    assert result.evidence.missing == []
+
+
+def test_missing_order_fails_closed_at_review():
+    result = asyncio.run(
+        CarePulseOrchestrator().analyze(
+            AnalyzeRequest(text="破损退款已经催了三次", contact_count=3)
+        )
+    )
+    assert "ORDER" in result.evidence.missing
+    assert not result.review.approved
+    assert any(
+        violation.code == "INCOMPLETE_EVIDENCE_PACKET"
+        for violation in result.review.violations
+    )
+
+
+def test_agent_cannot_approve_supervisor_only_action():
+    async def scenario():
+        store = InMemoryRunStore()
+        harness = CarePulseHarness(store)
+        result = await harness.analyze(
+            AnalyzeRequest(text="用了面霜后红肿，要去微博曝光", order_id="ORDER_2088")
+        )
+        try:
+            await harness.approve(
+                result.case_id,
+                ApprovalRequest(
+                    decision="ACCEPT",
+                    approved_action_ids=["ESCALATE_PRODUCT_SAFETY"],
+                ),
+                Principal(
+                    agent_id="agent_1",
+                    role="AGENT",
+                    scopes={"case:read", "case:approve_reply"},
+                ),
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 403
+        else:
+            raise AssertionError("untrusted agent approved a supervisor-only action")
+        assert store.outbox == {}
+
+    asyncio.run(scenario())
+
+
+def test_reply_approval_and_action_approval_are_separate():
+    async def scenario():
+        store = InMemoryRunStore()
+        harness = CarePulseHarness(store)
+        result = await harness.analyze(
+            AnalyzeRequest(
+                text="第三次联系，退款承诺已超时。",
+                order_id="ORDER_1024",
+                contact_count=3,
+                previous_promise_overdue=True,
+            )
+        )
+        approval = await harness.approve(
+            result.case_id,
+            ApprovalRequest(decision="ACCEPT", approved_action_ids=[]),
+            Principal(
+                agent_id="agent_1",
+                role="AGENT",
+                scopes={"case:read", "case:approve_reply"},
+            ),
+        )
+        assert approval.state == CaseState.APPROVED
+        assert approval.outbox_event_ids == []
+        assert store.outbox == {}
+
+    asyncio.run(scenario())

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
+from typing import Any, ClassVar
 
 from .schemas import (
     AnalyzeRequest,
@@ -118,23 +119,50 @@ class RiskSignalEngine:
 class EvidenceService:
     """Typed mock adapters. Production adapters can be swapped without changing the graph."""
 
+    _orders: ClassVar[dict[str, dict[str, Any]]] = {
+        "ORDER_1024": {
+            "content": "订单于 2026-07-28 11:30 签收；退款状态为 NOT_REQUESTED；实付金额 ¥389。",
+            "metadata": {
+                "status": "DELIVERED",
+                "refund_status": "NOT_REQUESTED",
+                "amount": 389,
+                "signed_days": 2,
+                "damage_evidence": True,
+            },
+        },
+        "ORDER_2088": {
+            "content": "订单已签收 5 天；实付金额 ¥499；产品批次 B26C0719，需安全团队核对批次记录。",
+            "metadata": {
+                "status": "DELIVERED",
+                "amount": 499,
+                "signed_days": 5,
+                "batch": "B26C0719",
+            },
+        },
+    }
+
     async def _order(self, request: AnalyzeRequest) -> EvidenceItem | None:
         await asyncio.sleep(0)
         if not request.order_id:
             return None
+        record = self._orders.get(
+            request.order_id,
+            {
+                "content": "订单已关联；详细履约信息需由人工核对。",
+                "metadata": {"status": "UNKNOWN", "manual_verification_required": True},
+            },
+        )
         return EvidenceItem(
             evidence_id=f"order:{request.order_id}",
             evidence_type="ORDER",
             title=request.order_id,
-            content="订单已签收 2 天；退款状态为 NOT_REQUESTED；实付金额 ¥389。",
+            content=str(record["content"]),
             source="OMS",
-            metadata={"status": "DELIVERED", "refund_status": "NOT_REQUESTED"},
+            metadata=dict(record["metadata"]),
         )
 
-    async def _history(self, request: AnalyzeRequest) -> EvidenceItem | None:
+    async def _history(self, request: AnalyzeRequest) -> EvidenceItem:
         await asyncio.sleep(0)
-        if request.contact_count < 2 and not request.previous_promise_overdue:
-            return None
         return EvidenceItem(
             evidence_id=f"history:{request.conversation_id}",
             evidence_type="CASE_HISTORY",
@@ -146,51 +174,106 @@ class EvidenceService:
             source="CRM",
         )
 
-    async def _policy(self, triage: TriageResult) -> EvidenceItem:
+    async def _knowledge(self, triage: TriageResult) -> list[EvidenceItem]:
         await asyncio.sleep(0)
         if triage.issue_type == "ADVERSE_REACTION":
-            return EvidenceItem(
-                evidence_id="policy:safety_sop_v6:clause_2_1",
-                evidence_type="SAFETY_SOP",
-                title="产品安全处置 SOP §2.1",
-                content="出现明确红肿等不良反应描述时，应建议暂停使用并进入安全事件流程。",
-                source="政策知识库",
-                version="v6",
-                clause_id="2.1",
-                metadata={"region": "CN", "approval_status": "APPROVED"},
-            )
+            return [
+                EvidenceItem(
+                    evidence_id="product:cream_b26c0719:safety",
+                    evidence_type="PRODUCT",
+                    title="面霜批次与安全资料",
+                    content="批次 B26C0719 已登记；不良反应原因不得在专业评估前推断。",
+                    source="产品知识库",
+                    version="v3",
+                    metadata={"approval_status": "APPROVED"},
+                ),
+                EvidenceItem(
+                    evidence_id="policy:safety_sop_v6:clause_2_1",
+                    evidence_type="SAFETY_SOP",
+                    title="产品安全处置 SOP §2.1",
+                    content="出现明确红肿等不良反应描述时，应建议暂停使用并进入安全事件流程。",
+                    source="政策知识库",
+                    version="v6",
+                    clause_id="2.1",
+                    metadata={"region": "CN", "approval_status": "APPROVED"},
+                ),
+                EvidenceItem(
+                    evidence_id="policy:risk_escalation_v4:clause_1_3",
+                    evidence_type="RISK_POLICY",
+                    title="高风险服务升级规则 §1.3",
+                    content="不良反应与公开传播意图同时出现时，风险取最高等级并强制人工升级。",
+                    source="政策知识库",
+                    version="v4",
+                    clause_id="1.3",
+                    metadata={"region": "CN", "approval_status": "APPROVED"},
+                ),
+            ]
         if triage.intent == "REFUND_COMPLAINT":
-            return EvidenceItem(
-                evidence_id="policy:refund_v5:clause_3_2",
-                evidence_type="REFUND_POLICY",
-                title="破损商品售后政策 §3.2",
-                content="签收 7 日内且已有有效破损凭证，可发起退款资格核验。",
+            return [
+                EvidenceItem(
+                    evidence_id="policy:refund_v5:clause_3_2",
+                    evidence_type="REFUND_POLICY",
+                    title="破损商品售后政策 §3.2",
+                    content="签收 7 日内且已有有效破损凭证，可发起退款资格核验。",
+                    source="政策知识库",
+                    version="v5",
+                    clause_id="3.2",
+                    metadata={"region": "CN", "channel": "ONLINE", "approval_status": "APPROVED"},
+                )
+            ]
+        return [
+            EvidenceItem(
+                evidence_id="product:usage_v4:clause_2",
+                evidence_type="PRODUCT",
+                title="敏感肌首次使用建议",
+                content="首次使用前建议局部测试；出现持续不适时应停止使用并咨询专业人士。",
+                source="产品知识库",
+                version="v4",
+                clause_id="2",
+                metadata={"approval_status": "APPROVED"},
+            ),
+            EvidenceItem(
+                evidence_id="policy:claim_safety_v3:clause_1_4",
+                evidence_type="CLAIM_POLICY",
+                title="功效沟通合规指引 §1.4",
+                content="客服不得使用治疗疾病或保证效果等医学承诺。",
                 source="政策知识库",
-                version="v5",
-                clause_id="3.2",
-                metadata={"region": "CN", "channel": "ONLINE", "approval_status": "APPROVED"},
-            )
+                version="v3",
+                clause_id="1.4",
+                metadata={"approval_status": "APPROVED"},
+            ),
+        ]
+
+    async def _promise(self, request: AnalyzeRequest) -> EvidenceItem:
+        await asyncio.sleep(0)
         return EvidenceItem(
-            evidence_id="product:usage_v4:clause_2",
-            evidence_type="PRODUCT",
-            title="敏感肌首次使用建议",
-            content="首次使用前建议局部测试；出现持续不适时应停止使用并咨询专业人士。",
-            source="产品知识库",
-            version="v4",
-            clause_id="2",
-            metadata={"approval_status": "APPROVED"},
+            evidence_id=f"promise:{request.conversation_id}",
+            evidence_type="PROMISE",
+            title="历史服务承诺",
+            content=(
+                "上一轮 24 小时反馈承诺已超时。"
+                if request.previous_promise_overdue
+                else "未发现仍在履行或已超时的服务承诺。"
+            ),
+            source="CRM",
+            metadata={"overdue": request.previous_promise_overdue},
         )
 
     async def collect(self, request: AnalyzeRequest, triage: TriageResult) -> EvidencePacket:
-        order, history, policy = await asyncio.gather(
-            self._order(request), self._history(request), self._policy(triage)
+        order, history, knowledge, promise = await asyncio.gather(
+            self._order(request),
+            self._history(request),
+            self._knowledge(triage),
+            self._promise(request),
         )
-        items = [item for item in (order, history, policy) if item is not None]
-        available = {item.evidence_type for item in items}
-        missing = [
-            kind for kind in triage.required_evidence
-            if kind in {"ORDER", "CASE_HISTORY"} and kind not in available
+        candidates = [order, history, promise, *knowledge]
+        items = [
+            item
+            for item in candidates
+            if item is not None and item.evidence_type in triage.required_evidence
         ]
+        available = {item.evidence_type for item in items}
+        missing = [kind for kind in triage.required_evidence if kind not in available]
         return EvidencePacket(items=items, missing=missing)
 
 
@@ -251,11 +334,29 @@ class CopilotAgent:
 
 
 class DeterministicValidator:
-    def validate(self, result: CopilotResult) -> list[ReviewViolation]:
+    def validate(
+        self,
+        result: CopilotResult,
+        evidence: EvidencePacket,
+        required_evidence: list[str],
+    ) -> list[ReviewViolation]:
         violations: list[ReviewViolation] = []
-        if not result.evidence_refs:
+        available_ids = {item.evidence_id for item in evidence.items}
+        if not result.evidence_refs or any(ref not in available_ids for ref in result.evidence_refs):
             violations.append(
-                ReviewViolation(code="MISSING_EVIDENCE", message="建议回复缺少证据引用")
+                ReviewViolation(code="INVALID_EVIDENCE_REF", message="建议回复包含缺失或无效的证据引用")
+            )
+        if evidence.missing:
+            violations.append(
+                ReviewViolation(
+                    code="INCOMPLETE_EVIDENCE_PACKET",
+                    message=f"必需证据不完整：{', '.join(evidence.missing)}",
+                )
+            )
+        present_types = {item.evidence_type for item in evidence.items}
+        if any(kind not in present_types for kind in required_evidence):
+            violations.append(
+                ReviewViolation(code="REQUIRED_EVIDENCE_MISSING", message="必需证据类型未全部覆盖")
             )
         if "立即退款" in result.draft_reply or "保证到账" in result.draft_reply:
             violations.append(
@@ -268,16 +369,34 @@ class DeterministicValidator:
 
 
 class ReviewAgent:
+    """Independent second-pass reviewer; it does not trust the draft agent's claims."""
+
     async def run(
         self,
         copilot: CopilotResult,
+        evidence: EvidencePacket,
+        risk: RiskSignal,
         deterministic_violations: list[ReviewViolation],
     ) -> ReviewResult:
+        violations = list(deterministic_violations)
+        if risk.severity == RiskSeverity.CRITICAL:
+            if "暂停使用" not in copilot.draft_reply:
+                violations.append(
+                    ReviewViolation(code="SAFETY_STOP_USE_MISSING", message="安全事件回复缺少停用建议")
+                )
+            if not any(item.evidence_type == "RISK_POLICY" for item in evidence.items):
+                violations.append(
+                    ReviewViolation(code="RISK_POLICY_MISSING", message="高风险回复缺少升级政策证据")
+                )
+        if copilot.uncertainties and not evidence.missing:
+            violations.append(
+                ReviewViolation(code="STALE_UNCERTAINTY", message="草稿的不确定性与证据包不一致")
+            )
         return ReviewResult(
-            approved=not deterministic_violations,
-            violations=deterministic_violations,
-            revision_required=bool(deterministic_violations),
-            confidence=0.97,
+            approved=not violations,
+            violations=violations,
+            revision_required=bool(violations),
+            confidence=0.98 if not violations else 0.91,
         )
 
 
@@ -307,4 +426,3 @@ class ToolPolicyService:
             requires_supervisor=action.action == "ESCALATE_PRODUCT_SAFETY",
             reason="高风险升级动作进入受控队列",
         )
-

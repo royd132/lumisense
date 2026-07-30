@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class CaseState(StrEnum):
@@ -147,7 +147,7 @@ class ApprovalRequest(BaseModel):
     decision: str = Field(pattern="^(ACCEPT|EDIT|REJECT|ESCALATE)$")
     edited_reply: str | None = Field(default=None, max_length=8000)
     reason: str | None = Field(default=None, max_length=1000)
-    agent_id: str = "agent_demo"
+    approved_action_ids: list[str] = Field(default_factory=list)
 
 
 class ApprovalResult(BaseModel):
@@ -156,3 +156,22 @@ class ApprovalResult(BaseModel):
     state: CaseState
     outbox_event_ids: list[str] = Field(default_factory=list)
 
+
+class Principal(BaseModel):
+    """Identity derived by the API layer; never accepted from an approval body."""
+
+    agent_id: str
+    role: str
+    scopes: set[str] = Field(default_factory=set)
+
+    @property
+    def is_supervisor(self) -> bool:
+        return self.role in {"SUPERVISOR", "RISK_MANAGER", "ADMIN"}
+
+
+class RunStatus(BaseModel):
+    run_id: str
+    case_id: str
+    status: str
+    state: CaseState | None = None
+    error: str | None = None

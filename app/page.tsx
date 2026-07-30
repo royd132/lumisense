@@ -35,6 +35,13 @@ import {
 } from "antd";
 import type { EChartsOption } from "echarts";
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ApiAnalysis,
+  approveCase,
+  CAREPULSE_API_URL,
+  RunInput,
+  startRun,
+} from "./lib/carepulse-api";
 
 type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 type ScenarioKey = "faq" | "refund" | "safety";
@@ -73,7 +80,7 @@ type Scenario = {
     extra: string;
   };
   evidence: Evidence[];
-  actions: { action: string; reason: string; gate: string }[];
+  actions: { id?: string; action: string; reason: string; gate: string }[];
   review: {
     approved: boolean;
     label: string;
@@ -316,6 +323,75 @@ const processingSteps = [
   "正在执行独立审查",
 ];
 
+const runInputs: Record<ScenarioKey, RunInput> = {
+  faq: {
+    conversation_id: "conv_faq_001",
+    customer_id: "customer_lin",
+    text: "你好，想问玻尿酸精华敏感肌能用吗？第一次怎么用比较好？",
+  },
+  refund: {
+    conversation_id: "conv_refund_1024",
+    customer_id: "customer_zhou",
+    text: "这已经是第三次联系，破损照片发过了，退款承诺还是没有处理。",
+    order_id: "ORDER_1024",
+    contact_count: 3,
+    previous_promise_overdue: true,
+  },
+  safety: {
+    conversation_id: "conv_safety_2088",
+    customer_id: "customer_chen",
+    text: "用了面霜后脸上红肿，今天不处理我就发到小红书曝光。",
+    order_id: "ORDER_2088",
+  },
+};
+
+function scenarioFromApi(base: Scenario, result: ApiAnalysis): Scenario {
+  const evidenceTone = (type: string): Evidence["tone"] =>
+    type === "ORDER" ? "blue" : type.includes("POLICY") || type.includes("SOP") ? "gold" : type === "PRODUCT" ? "green" : "violet";
+  const evidenceKind = (type: string): Evidence["kind"] =>
+    type === "ORDER" ? "订单" : type === "PRODUCT" ? "产品" : type.includes("HISTORY") || type === "PROMISE" ? "历史" : "政策";
+
+  return {
+    ...base,
+    intent: result.triage.intent,
+    issue: result.triage.issue_type,
+    explicit: result.triage.explicit_request,
+    summary: result.copilot.consumer_summary,
+    serviceGoal: result.copilot.service_goal,
+    draft: result.copilot.draft_reply,
+    status: result.state,
+    severity: result.risk.severity === "REVIEW_REQUIRED" ? "HIGH" : result.risk.severity,
+    confidence: Math.min(result.triage.confidence, result.risk.confidence),
+    riskSignals: result.risk.signals,
+    evidence: result.evidence.items.map((item) => ({
+      kind: evidenceKind(item.evidence_type),
+      title: item.title,
+      detail: item.content,
+      ref: item.evidence_id,
+      tone: evidenceTone(item.evidence_type),
+    })),
+    actions: result.copilot.recommended_actions.map((item) => ({
+      id: item.action,
+      action: item.action,
+      reason: item.reason,
+      gate: "人工批准后进入 Outbox",
+    })),
+    review: {
+      approved: result.review.approved,
+      label: result.review.approved ? "独立审查通过" : "需要人工复核",
+      detail: result.review.approved
+        ? "必需证据、引用、风险措辞与动作权限均已独立复核。"
+        : result.review.violations.map((item) => item.message).join("；"),
+    },
+    trace: result.trace.map((item) => ({
+      name: item.graph_node,
+      detail: `状态推进至 ${item.state_after}`,
+      ms: item.latency_ms,
+      state: item.state_after === "REVIEW_FAILED" ? "warn" : "done",
+    })),
+  };
+}
+
 const severityMeta: Record<
   Severity,
   { label: string; className: string; color: string; hint: string }
@@ -370,14 +446,54 @@ function Workbench({
   scenarioKey: ScenarioKey;
   onScenario: (key: ScenarioKey) => void;
 }) {
-  const scenario = scenarios[scenarioKey];
-  const [draft, setDraft] = useState(scenario.draft);
-  const [processingIndex, setProcessingIndex] = useState(-1);
+  const baseScenario = scenarios[scenarioKey];
+  const [scenario, setScenario] = useState(baseScenario);
+  const [draft, setDraft] = useState(baseScenario.draft);
+  const [processingIndex, setProcessingIndex] = useState(
+    CAREPULSE_API_URL ? 0 : -1,
+  );
   const [notice, setNotice] = useState("");
+  const [runtimeMode, setRuntimeMode] = useState<"online" | "demo" | "error">(
+    CAREPULSE_API_URL ? "online" : "demo",
+  );
+  const [liveCaseId, setLiveCaseId] = useState<string | null>(null);
+  const [selectedActionIds, setSelectedActionIds] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!CAREPULSE_API_URL) return;
+    let active = true;
+    void startRun(runInputs[scenarioKey], (node) => {
+      if (!active) return;
+      const order = ["ingest", "triage_and_risk", "evidence", "draft", "review"];
+      setProcessingIndex(Math.max(0, order.indexOf(node)));
+    })
+      .then((result) => {
+        if (!active) return;
+        const hydrated = scenarioFromApi(baseScenario, result);
+        setScenario(hydrated);
+        setDraft(hydrated.draft);
+        setLiveCaseId(result.case_id);
+        setRuntimeMode("online");
+        setProcessingIndex(-1);
+      })
+      .catch(() => {
+        if (!active) return;
+        setRuntimeMode("error");
+        setProcessingIndex(-1);
+        setNotice("后端 Harness 暂不可用，当前保留演示数据且不会执行任何副作用。");
+      });
+    return () => {
+      active = false;
+    };
+  }, [baseScenario, scenarioKey]);
 
   const switchScenario = (key: ScenarioKey) => {
     if (key === scenarioKey) return;
+    if (CAREPULSE_API_URL) {
+      onScenario(key);
+      return;
+    }
     setProcessingIndex(0);
     let index = 0;
     const timer = window.setInterval(() => {
@@ -392,7 +508,25 @@ function Workbench({
     }, 260);
   };
 
-  const approve = () => {
+  const approve = async () => {
+    if (liveCaseId) {
+      try {
+        const changed = draft !== scenario.draft;
+        const decision = scenario.severity === "CRITICAL" ? "ESCALATE" : changed ? "EDIT" : "ACCEPT";
+        const result = await approveCase(
+          liveCaseId,
+          decision,
+          draft,
+          selectedActionIds,
+        );
+        setNotice(
+          `审批已落库，状态 ${result.state}；${result.outbox_event_ids.length} 项明确选择的动作已进入 Outbox。`,
+        );
+      } catch {
+        setNotice("审批未通过权限或状态校验，未写入任何副作用。");
+      }
+      return;
+    }
     const critical = scenario.severity === "CRITICAL";
     setNotice(
       critical
@@ -401,7 +535,16 @@ function Workbench({
     );
   };
 
-  const reject = () => {
+  const reject = async () => {
+    if (liveCaseId) {
+      try {
+        await approveCase(liveCaseId, "REJECT", draft, []);
+        setNotice("已拒绝本次建议，审批记录已保存，未创建副作用。");
+      } catch {
+        setNotice("拒绝操作未完成，请刷新运行状态后重试。");
+      }
+      return;
+    }
     setNotice("已拒绝本次建议，拒绝原因与当前草稿已写入审批记录。");
   };
 
@@ -434,10 +577,10 @@ function Workbench({
             );
           })}
         </div>
-        <div className="live-state">
+        <div className={`live-state ${runtimeMode !== "online" ? "is-demo" : ""}`}>
           <span className="live-dot" />
-          Harness 在线
-          <small>v0.9 · CN</small>
+          {runtimeMode === "online" ? "Harness 在线" : runtimeMode === "error" ? "演示回退" : "演示模式"}
+          <small>{runtimeMode === "online" ? "REST + SSE · CN" : "无后端副作用"}</small>
         </div>
       </section>
 
@@ -609,6 +752,19 @@ function Workbench({
               </div>
               {scenario.actions.map((item, index) => (
                 <div className="action-row" key={item.action}>
+                  <input
+                    type="checkbox"
+                    aria-label={`批准动作 ${item.action}`}
+                    checked={selectedActionIds.includes(item.id ?? item.action)}
+                    onChange={(event) => {
+                      const id = item.id ?? item.action;
+                      setSelectedActionIds((current) =>
+                        event.target.checked
+                          ? [...current, id]
+                          : current.filter((value) => value !== id),
+                      );
+                    }}
+                  />
                   <span className="action-index">0{index + 1}</span>
                   <div>
                     <b>{item.action}</b>
