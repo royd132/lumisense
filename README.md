@@ -30,13 +30,15 @@ npm install
 npm run dev
 ```
 
-若需连接本地 Harness，在前端环境中设置：
+默认使用站点内置的同源 Edge Harness；线上运行、Trace、人工停点、审批与
+Outbox 状态会持久化到 D1。若需改连本地 Python/LangGraph Harness，可设置：
 
 ```bash
 NEXT_PUBLIC_CAREPULSE_API_URL=http://localhost:8000
 ```
 
-没有配置时页面会明确显示“演示模式”，不会声称后端在线，也不会执行副作用。
+设置 `NEXT_PUBLIC_CAREPULSE_API_ENABLED=false` 才会进入纯演示模式；运行时连接
+失败则自动标记为“演示回退”，不会执行副作用。
 
 若在 Windows PowerShell 中运行，可直接使用：
 

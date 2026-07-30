@@ -31,8 +31,8 @@ test("server-renders the CarePulse workbench with an honest runtime mode", async
   assert.match(html, /CarePulse/);
   assert.match(html, /消费者问题理解/);
   assert.match(html, /证据包/);
-  assert.match(html, /演示模式/);
-  assert.match(html, /无后端副作用/);
+  assert.match(html, /正在连接 Harness/);
+  assert.match(html, /正在验证运行时/);
   assert.doesNotMatch(html, /Harness 在线/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
@@ -45,6 +45,7 @@ test("keeps REST, SSE and explicit action approval in the client contract", asyn
   ]);
 
   assert.match(api, /NEXT_PUBLIC_CAREPULSE_API_URL/);
+  assert.match(api, /NEXT_PUBLIC_CAREPULSE_API_ENABLED/);
   assert.match(api, /new EventSource/);
   assert.match(api, /approved_action_ids/);
   assert.match(api, /X-Agent-Role/);

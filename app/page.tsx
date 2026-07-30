@@ -38,7 +38,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiAnalysis,
   approveCase,
-  CAREPULSE_API_URL,
+  CAREPULSE_API_ENABLED,
   RunInput,
   startRun,
 } from "./lib/carepulse-api";
@@ -450,18 +450,20 @@ function Workbench({
   const [scenario, setScenario] = useState(baseScenario);
   const [draft, setDraft] = useState(baseScenario.draft);
   const [processingIndex, setProcessingIndex] = useState(
-    CAREPULSE_API_URL ? 0 : -1,
+    CAREPULSE_API_ENABLED ? 0 : -1,
   );
   const [notice, setNotice] = useState("");
-  const [runtimeMode, setRuntimeMode] = useState<"online" | "demo" | "error">(
-    CAREPULSE_API_URL ? "online" : "demo",
+  const [runtimeMode, setRuntimeMode] = useState<
+    "connecting" | "online" | "demo" | "error"
+  >(
+    CAREPULSE_API_ENABLED ? "connecting" : "demo",
   );
   const [liveCaseId, setLiveCaseId] = useState<string | null>(null);
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (!CAREPULSE_API_URL) return;
+    if (!CAREPULSE_API_ENABLED) return;
     let active = true;
     void startRun(runInputs[scenarioKey], (node) => {
       if (!active) return;
@@ -490,7 +492,7 @@ function Workbench({
 
   const switchScenario = (key: ScenarioKey) => {
     if (key === scenarioKey) return;
-    if (CAREPULSE_API_URL) {
+    if (CAREPULSE_API_ENABLED) {
       onScenario(key);
       return;
     }
@@ -579,8 +581,20 @@ function Workbench({
         </div>
         <div className={`live-state ${runtimeMode !== "online" ? "is-demo" : ""}`}>
           <span className="live-dot" />
-          {runtimeMode === "online" ? "Harness 在线" : runtimeMode === "error" ? "演示回退" : "演示模式"}
-          <small>{runtimeMode === "online" ? "REST + SSE · CN" : "无后端副作用"}</small>
+          {runtimeMode === "online"
+            ? "Harness 在线"
+            : runtimeMode === "connecting"
+              ? "正在连接 Harness"
+              : runtimeMode === "error"
+                ? "演示回退"
+                : "演示模式"}
+          <small>
+            {runtimeMode === "online"
+              ? "REST + SSE + D1 · CN"
+              : runtimeMode === "connecting"
+                ? "正在验证运行时"
+                : "无后端副作用"}
+          </small>
         </div>
       </section>
 

@@ -1,4 +1,6 @@
 export const CAREPULSE_API_URL = (process.env.NEXT_PUBLIC_CAREPULSE_API_URL ?? "").replace(/\/$/, "");
+export const CAREPULSE_API_ENABLED =
+  process.env.NEXT_PUBLIC_CAREPULSE_API_ENABLED !== "false";
 
 export type ApiAnalysis = {
   run_id: string;
