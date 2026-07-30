@@ -17,10 +17,12 @@ class ServiceCase(Base):
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     conversation_id: Mapped[str] = mapped_column(String(80), index=True)
     customer_id: Mapped[str] = mapped_column(String(80), index=True)
+    owner_agent_id: Mapped[str] = mapped_column(String(120), index=True)
     original_input: Mapped[str] = mapped_column(Text)
     sanitized_input: Mapped[str] = mapped_column(Text)
     state: Mapped[str] = mapped_column(String(40), index=True)
     route: Mapped[str | None] = mapped_column(String(40))
+    risk_severity: Mapped[str | None] = mapped_column(String(30), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -51,6 +53,31 @@ class RunStep(Base):
     prompt_version: Mapped[str | None] = mapped_column(String(80))
     artifact: Mapped[dict] = mapped_column(JSON, default=dict)
     latency_ms: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentArtifact(Base):
+    __tablename__ = "agent_artifacts"
+    __table_args__ = (
+        UniqueConstraint("run_id", "artifact_type", name="uq_agent_artifact_run_type"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"), index=True)
+    artifact_type: Mapped[str] = mapped_column(String(40))
+    data: Mapped[dict] = mapped_column(JSON)
+    prompt_version: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RiskEvent(Base):
+    __tablename__ = "risk_events"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("service_cases.id"), index=True)
+    severity: Mapped[str] = mapped_column(String(30), index=True)
+    signals: Mapped[list] = mapped_column(JSON, default=list)
+    rule_ids: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -100,9 +127,7 @@ class OutboxEvent(Base):
 
 class ActionExecution(Base):
     __tablename__ = "action_executions"
-    __table_args__ = (
-        UniqueConstraint("idempotency_key", name="uq_action_execution_idempotency"),
-    )
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_action_execution_idempotency"),)
 
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
     outbox_event_id: Mapped[str] = mapped_column(ForeignKey("outbox_events.id"), index=True)

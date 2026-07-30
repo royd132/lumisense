@@ -6,16 +6,24 @@ export const serviceCases = sqliteTable(
     id: text("id").primaryKey(),
     conversationId: text("conversation_id").notNull(),
     customerId: text("customer_id").notNull(),
+    ownerEmail: text("owner_email"),
+    assignedAgentEmail: text("assigned_agent_email"),
+    originalInput: text("original_input"),
+    sanitizedInput: text("sanitized_input"),
+    requestKey: text("request_key"),
     state: text("state").notNull(),
     route: text("route").notNull(),
     riskSeverity: text("risk_severity").notNull(),
     resultJson: text("result_json").notNull(),
+    resolvedAt: text("resolved_at"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
     index("service_cases_state_idx").on(table.state),
     index("service_cases_conversation_idx").on(table.conversationId),
+    index("service_cases_owner_idx").on(table.ownerEmail),
+    uniqueIndex("service_cases_request_key_uq").on(table.requestKey),
   ],
 );
 
@@ -29,6 +37,9 @@ export const agentRuns = sqliteTable(
     status: text("status").notNull(),
     requestJson: text("request_json").notNull(),
     resultJson: text("result_json").notNull(),
+    inputHash: text("input_hash"),
+    promptVersion: text("prompt_version"),
+    modelAlias: text("model_alias"),
     error: text("error"),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
@@ -48,6 +59,27 @@ export const runEvents = sqliteTable(
     createdAt: text("created_at").notNull(),
   },
   (table) => [index("run_events_run_idx").on(table.runId, table.id)],
+);
+
+export const agentArtifacts = sqliteTable(
+  "agent_artifacts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    runId: text("run_id")
+      .notNull()
+      .references(() => agentRuns.id),
+    artifactType: text("artifact_type").notNull(),
+    dataJson: text("data_json").notNull(),
+    promptVersion: text("prompt_version"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("agent_artifacts_run_idx").on(table.runId),
+    uniqueIndex("agent_artifacts_run_type_uq").on(
+      table.runId,
+      table.artifactType,
+    ),
+  ],
 );
 
 export const approvalEvents = sqliteTable(
@@ -81,6 +113,7 @@ export const outboxEvents = sqliteTable(
     status: text("status").notNull().default("PENDING"),
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
+    nextAttemptAt: text("next_attempt_at"),
     processedAt: text("processed_at"),
     createdAt: text("created_at").notNull(),
   },
@@ -94,6 +127,7 @@ export const actionExecutions = sqliteTable(
   "action_executions",
   {
     id: text("id").primaryKey(),
+    outboxEventId: text("outbox_event_id"),
     caseId: text("case_id")
       .notNull()
       .references(() => serviceCases.id),
@@ -106,6 +140,24 @@ export const actionExecutions = sqliteTable(
   (table) => [
     uniqueIndex("action_executions_idempotency_uq").on(table.idempotencyKey),
     index("action_executions_case_idx").on(table.caseId),
+  ],
+);
+
+export const riskEvents = sqliteTable(
+  "risk_events",
+  {
+    id: text("id").primaryKey(),
+    caseId: text("case_id")
+      .notNull()
+      .references(() => serviceCases.id),
+    severity: text("severity").notNull(),
+    signalsJson: text("signals_json").notNull(),
+    route: text("route").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("risk_events_case_idx").on(table.caseId),
+    index("risk_events_severity_idx").on(table.severity),
   ],
 );
 

@@ -36,9 +36,13 @@ import {
 import type { EChartsOption } from "echarts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ApiDashboard,
   ApiAnalysis,
+  CurrentPrincipal,
   approveCase,
   CAREPULSE_API_ENABLED,
+  getCurrentPrincipal,
+  getDashboard,
   RunInput,
   startRun,
 } from "./lib/carepulse-api";
@@ -442,9 +446,11 @@ function ProductMark() {
 function Workbench({
   scenarioKey,
   onScenario,
+  principal,
 }: {
   scenarioKey: ScenarioKey;
   onScenario: (key: ScenarioKey) => void;
+  principal: CurrentPrincipal | null;
 }) {
   const baseScenario = scenarios[scenarioKey];
   const [scenario, setScenario] = useState(baseScenario);
@@ -460,6 +466,8 @@ function Workbench({
   );
   const [liveCaseId, setLiveCaseId] = useState<string | null>(null);
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [finalized, setFinalized] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -476,6 +484,13 @@ function Workbench({
         setScenario(hydrated);
         setDraft(hydrated.draft);
         setLiveCaseId(result.case_id);
+        setSelectedActionIds([]);
+        setFinalized(
+          ["APPROVED", "ESCALATED", "PENDING_SUPERVISOR_APPROVAL"].includes(
+            result.state,
+          ) ||
+            (result.state === "REVIEW_FAILED" && result.review.approved),
+        );
         setRuntimeMode("online");
         setProcessingIndex(-1);
       })
@@ -511,21 +526,27 @@ function Workbench({
   };
 
   const approve = async () => {
+    if (submitting || finalized) return;
     if (liveCaseId) {
+      setSubmitting(true);
       try {
         const changed = draft !== scenario.draft;
-        const decision = scenario.severity === "CRITICAL" ? "ESCALATE" : changed ? "EDIT" : "ACCEPT";
+        const decision = changed ? "EDIT" : "ACCEPT";
         const result = await approveCase(
           liveCaseId,
           decision,
           draft,
           selectedActionIds,
         );
+        setScenario((current) => ({ ...current, status: result.state }));
+        setFinalized(true);
         setNotice(
-          `审批已落库，状态 ${result.state}；${result.outbox_event_ids.length} 项明确选择的动作已由 Outbox 生成受控任务。`,
+          `审批已落库，状态 ${result.state}；${result.outbox_event_ids.length} 项动作已进入可重试 Outbox。`,
         );
       } catch {
         setNotice("审批未通过权限或状态校验，未写入任何副作用。");
+      } finally {
+        setSubmitting(false);
       }
       return;
     }
@@ -537,13 +558,63 @@ function Workbench({
     );
   };
 
+  const escalate = async () => {
+    if (submitting || finalized) return;
+    const supervisor = ["SUPERVISOR", "RISK_MANAGER", "ADMIN"].includes(
+      principal?.role ?? "AGENT",
+    );
+    if (!liveCaseId) {
+      setFinalized(true);
+      setNotice(
+        supervisor
+          ? "演示升级已确认；接入 API 后将以同一审批门写入 Outbox。"
+          : "演示主管复核请求已确认；接入 API 后将进入主管审批队列。",
+      );
+      return;
+    }
+    if (
+      supervisor &&
+      scenario.severity === "CRITICAL" &&
+      !selectedActionIds.includes("ESCALATE_PRODUCT_SAFETY")
+    ) {
+      setNotice("严重风险升级前，必须明确勾选产品安全升级动作。");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await approveCase(
+        liveCaseId,
+        supervisor ? "ESCALATE" : "REQUEST_ESCALATION",
+        draft,
+        supervisor ? selectedActionIds : [],
+      );
+      setScenario((current) => ({ ...current, status: result.state }));
+      setFinalized(true);
+      setNotice(
+        supervisor
+          ? `主管升级已落库，${result.outbox_event_ids.length} 项动作进入可重试 Outbox。`
+          : "已创建主管复核请求，案例进入 PENDING_SUPERVISOR_APPROVAL；当前建议不会自动发送。",
+      );
+    } catch {
+      setNotice("升级请求未通过权限或状态校验，未创建任何副作用。");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const reject = async () => {
+    if (submitting || finalized) return;
     if (liveCaseId) {
+      setSubmitting(true);
       try {
-        await approveCase(liveCaseId, "REJECT", draft, []);
+        const result = await approveCase(liveCaseId, "REJECT", draft, []);
+        setScenario((current) => ({ ...current, status: result.state }));
+        setFinalized(true);
         setNotice("已拒绝本次建议，审批记录已保存，未创建副作用。");
       } catch {
         setNotice("拒绝操作未完成，请刷新运行状态后重试。");
+      } finally {
+        setSubmitting(false);
       }
       return;
     }
@@ -590,7 +661,7 @@ function Workbench({
                 : "演示模式"}
           <small>
             {runtimeMode === "online"
-              ? "REST + SSE + D1 · CN"
+              ? "REST + SSE · 持久化运行时"
               : runtimeMode === "connecting"
                 ? "正在验证运行时"
                 : "无后端副作用"}
@@ -750,6 +821,7 @@ function Workbench({
               ref={textareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
+              disabled={finalized}
               aria-label="Copilot 建议回复"
               data-testid="draft-reply"
             />
@@ -770,6 +842,7 @@ function Workbench({
                     type="checkbox"
                     aria-label={`批准动作 ${item.action}`}
                     checked={selectedActionIds.includes(item.id ?? item.action)}
+                    disabled={finalized || submitting}
                     onChange={(event) => {
                       const id = item.id ?? item.action;
                       setSelectedActionIds((current) =>
@@ -800,19 +873,46 @@ function Workbench({
                     icon={<EditOutlined />}
                     onClick={() => textareaRef.current?.focus()}
                     aria-label="编辑建议回复"
+                    disabled={finalized || submitting}
                   />
                 </Tooltip>
-                <Button danger icon={<CloseOutlined />} onClick={reject}>
+                <Button
+                  danger
+                  icon={<CloseOutlined />}
+                  onClick={reject}
+                  disabled={finalized}
+                  loading={submitting}
+                >
                   拒绝
                 </Button>
                 <Button
                   icon={<ArrowUpOutlined />}
-                  onClick={() => setNotice("已转入主管人工处理队列，当前建议不会被自动发送。")}
+                  onClick={escalate}
+                  disabled={
+                    finalized ||
+                    submitting ||
+                    (scenario.severity === "LOW" && scenario.review.approved)
+                  }
                 >
-                  升级
+                  {["SUPERVISOR", "RISK_MANAGER", "ADMIN"].includes(
+                    principal?.role ?? "AGENT",
+                  )
+                    ? "主管升级"
+                    : "请求主管升级"}
                 </Button>
-                <Button type="primary" icon={<CheckOutlined />} onClick={approve} data-testid="approve-action">
-                  {scenario.severity === "CRITICAL" ? "批准升级计划" : "接受建议"}
+                <Button
+                  type="primary"
+                  icon={<CheckOutlined />}
+                  onClick={approve}
+                  data-testid="approve-action"
+                  disabled={
+                    finalized ||
+                    !scenario.review.approved ||
+                    scenario.severity === "CRITICAL"
+                  }
+                  loading={submitting}
+                >
+                  {finalized ? "已完成审批" : "接受建议"}
                 </Button>
               </div>
             </div>
@@ -925,15 +1025,53 @@ function Workbench({
   );
 }
 
-function Dashboard() {
+function Dashboard({ principal }: { principal: CurrentPrincipal | null }) {
+  const [snapshot, setSnapshot] = useState<ApiDashboard | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [resolvingCaseId, setResolvingCaseId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  const refresh = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      setSnapshot(await getDashboard());
+    } catch {
+      setError("风险数据暂时不可用，请稍后重试。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    void getDashboard()
+      .then((data) => {
+        if (active) setSnapshot(data);
+      })
+      .catch(() => {
+        if (active) setError("风险数据暂时不可用，请稍后重试。");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const trendOption = useMemo<EChartsOption>(
-    () => ({
+    () => {
+      const trend = snapshot?.risk_trend ?? [];
+      return ({
       tooltip: { trigger: "axis", backgroundColor: "#172033", borderWidth: 0, textStyle: { color: "#fff" } },
       grid: { left: 14, right: 12, top: 30, bottom: 12, containLabel: true },
       xAxis: {
         type: "category",
         boundaryGap: false,
-        data: ["7/24", "7/25", "7/26", "7/27", "7/28", "7/29", "今天"],
+        data: trend.length
+          ? trend.map((item) => item.date.slice(5))
+          : ["暂无数据"],
         axisLine: { lineStyle: { color: "#e6e8ed" } },
         axisTick: { show: false },
         axisLabel: { color: "#8b93a3", fontSize: 11 },
@@ -950,7 +1088,7 @@ function Dashboard() {
           name: "高风险会话",
           type: "line",
           smooth: 0.35,
-          data: [12, 15, 11, 18, 16, 24, 19],
+          data: trend.length ? trend.map((item) => item.count) : [0],
           symbol: "circle",
           symbolSize: 7,
           lineStyle: { color: "#d9364f", width: 3 },
@@ -970,12 +1108,15 @@ function Dashboard() {
           },
         },
       ],
-    }),
-    [],
+      });
+    },
+    [snapshot],
   );
 
   const issueOption = useMemo<EChartsOption>(
-    () => ({
+    () => {
+      const issueDistribution = snapshot?.issue_distribution ?? [];
+      return ({
       tooltip: { trigger: "item" },
       legend: {
         orient: "vertical",
@@ -993,25 +1134,103 @@ function Dashboard() {
           center: ["32%", "52%"],
           avoidLabelOverlap: true,
           label: { show: false },
-          data: [
-            { value: 36, name: "退款/退货", itemStyle: { color: "#2563eb" } },
-            { value: 25, name: "产品咨询", itemStyle: { color: "#56a3a6" } },
-            { value: 18, name: "物流问题", itemStyle: { color: "#d9a441" } },
-            { value: 12, name: "不良反应", itemStyle: { color: "#d9364f" } },
-            { value: 9, name: "其他", itemStyle: { color: "#a4aabc" } },
-          ],
+          data: (issueDistribution.length
+            ? issueDistribution
+            : [{ issue: "暂无数据", count: 1 }]
+          ).map((item, index) => ({
+            value: item.count,
+            name: item.issue,
+            itemStyle: {
+              color: ["#2563eb", "#56a3a6", "#d9a441", "#d9364f", "#a4aabc"][
+                index % 5
+              ],
+            },
+          })),
         },
       ],
-    }),
-    [],
+      });
+    },
+    [snapshot],
   );
 
-  const queue = [
-    { id: "CASE-2418", name: "陈女士", issue: "不良反应 + 舆情传播", severity: "严重", wait: "3 分钟", owner: "待分配" },
-    { id: "CASE-2407", name: "周女士", issue: "重复退款投诉", severity: "高", wait: "18 分钟", owner: "王悦" },
-    { id: "CASE-2396", name: "苏先生", issue: "产品真伪质疑", severity: "高", wait: "31 分钟", owner: "李婷" },
-    { id: "CASE-2388", name: "赵女士", issue: "隐私数据投诉", severity: "高", wait: "46 分钟", owner: "陈默" },
+  const totals = snapshot?.totals;
+  const metrics = [
+    {
+      label: "持久化案例",
+      value: totals?.cases ?? 0,
+      detail: "D1 主记录",
+      icon: <MessageOutlined />,
+      tone: "blue",
+    },
+    {
+      label: "高风险会话",
+      value: (totals?.high ?? 0) + (totals?.critical ?? 0),
+      detail: `严重 ${totals?.critical ?? 0}`,
+      icon: <AlertOutlined />,
+      tone: "red",
+    },
+    {
+      label: "建议接受率",
+      value: `${snapshot?.approval_rate ?? 0}%`,
+      detail: `平均修改 ${snapshot?.average_edit_rate ?? 0}%`,
+      icon: <CheckCircleFilled />,
+      tone: "green",
+    },
+    {
+      label: "待主管审批",
+      value: totals?.pending_supervisor ?? 0,
+      detail: `待客服 ${totals?.waiting_approval ?? 0}`,
+      icon: <EditOutlined />,
+      tone: "gold",
+    },
   ];
+
+  const downloadReport = () => {
+    if (!snapshot) return;
+    const rows = [
+      ["指标", "数值"],
+      ["案例总数", snapshot.totals.cases],
+      ["高风险", snapshot.totals.high],
+      ["严重风险", snapshot.totals.critical],
+      ["待客服审批", snapshot.totals.waiting_approval],
+      ["待主管审批", snapshot.totals.pending_supervisor],
+      ["重复投诉", snapshot.totals.repeat_complaints],
+      ["超时承诺", snapshot.totals.overdue_promises],
+      ["待处理动作", snapshot.totals.pending_actions],
+      ["死信动作", snapshot.totals.dead_letter_actions],
+      ["建议接受率", `${snapshot.approval_rate}%`],
+      ["平均修改率", `${snapshot.average_edit_rate}%`],
+    ];
+    const csv = rows.map((row) => row.join(",")).join("\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(
+      new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }),
+    );
+    link.download = `carepulse-risk-${snapshot.generated_at.slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const resolveSupervisorCase = async (
+    caseId: string,
+    severity: string,
+  ) => {
+    setResolvingCaseId(caseId);
+    setError("");
+    try {
+      await approveCase(
+        caseId,
+        "ESCALATE",
+        "",
+        severity === "CRITICAL" ? ["ESCALATE_PRODUCT_SAFETY"] : [],
+      );
+      await refresh();
+    } catch {
+      setError("主管审批未完成，案例状态或权限可能已变化。");
+    } finally {
+      setResolvingCaseId(null);
+    }
+  };
 
   return (
     <main className="dashboard-shell">
@@ -1022,28 +1241,30 @@ function Dashboard() {
           <p>由客服 Copilot 运行中产生的结构化风险事件聚合而成。</p>
         </div>
         <div className="dashboard-actions">
-          <Button icon={<ReloadOutlined />}>刷新</Button>
-          <Button type="primary" icon={<SendOutlined />}>
+          <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading}>
+            刷新
+          </Button>
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={downloadReport}
+            disabled={!snapshot}
+          >
             导出本周报告
           </Button>
         </div>
       </section>
 
+      {error && <div className="dashboard-error">{error}</div>}
+
       <section className="metric-grid">
-        {[
-          { label: "今日服务会话", value: "1,284", delta: "+8.2%", icon: <MessageOutlined />, tone: "blue" },
-          { label: "高风险会话", value: "19", delta: "-12.4%", icon: <AlertOutlined />, tone: "red" },
-          { label: "建议接受率", value: "87.6%", delta: "+3.1%", icon: <CheckCircleFilled />, tone: "green" },
-          { label: "平均人工修改", value: "12.8%", delta: "-2.7%", icon: <EditOutlined />, tone: "gold" },
-        ].map((item) => (
+        {metrics.map((item) => (
           <article className="metric-card" key={item.label}>
             <div className={`metric-icon ${item.tone}`}>{item.icon}</div>
             <div>
               <span>{item.label}</span>
-              <strong>{item.value}</strong>
-              <small className={item.delta.startsWith("-") && item.label !== "高风险会话" ? "down" : ""}>
-                {item.delta} <i>较昨日</i>
-              </small>
+              <strong>{loading ? "—" : item.value}</strong>
+              <small>{item.detail}</small>
             </div>
           </article>
         ))}
@@ -1054,9 +1275,11 @@ function Dashboard() {
           <div className="chart-title">
             <div>
               <h2>高风险会话趋势</h2>
-              <p>过去 7 天 · 硬规则与结构化风险合并结果</p>
+              <p>最近 7 个有事件日期 · D1 风险事件聚合</p>
             </div>
-            <Tag color="error">今日 19</Tag>
+            <Tag color="error">
+              严重 {snapshot?.totals.critical ?? 0}
+            </Tag>
           </div>
           <EChart option={trendOption} className="trend-chart" />
         </article>
@@ -1064,7 +1287,7 @@ function Dashboard() {
           <div className="chart-title">
             <div>
               <h2>主要问题类型</h2>
-              <p>今日会话结构</p>
+              <p>当前授权范围内的真实案例结构</p>
             </div>
           </div>
           <EChart option={issueOption} className="issue-chart" />
@@ -1076,34 +1299,65 @@ function Dashboard() {
           <div className="chart-title">
             <div>
               <h2>待处理升级队列</h2>
-              <p>副作用尚未执行，等待授权处理</p>
+              <p>按风险等级和更新时间排序</p>
             </div>
-            <Button type="link">查看全部</Button>
+            <Tag>{snapshot?.queue.length ?? 0} 项</Tag>
           </div>
           <div className="queue-table">
             <div className="queue-row queue-head">
-              <span>案例 / 消费者</span>
+              <span>案例 / 状态</span>
               <span>风险事件</span>
               <span>等级</span>
-              <span>等待时间</span>
+              <span>更新时间</span>
               <span>负责人</span>
+              <span>操作</span>
             </div>
-            {queue.map((row) => (
+            {(snapshot?.queue ?? []).map((row) => (
               <div className="queue-row" key={row.id}>
                 <span>
                   <b>{row.id}</b>
-                  <small>{row.name}</small>
+                  <small>{row.state}</small>
                 </span>
                 <span>{row.issue}</span>
                 <span>
-                  <Tag color={row.severity === "严重" ? "error" : "volcano"}>{row.severity}</Tag>
+                  <Tag color={row.severity === "CRITICAL" ? "error" : "volcano"}>
+                    {row.severity}
+                  </Tag>
                 </span>
                 <span>
-                  <ClockCircleOutlined /> {row.wait}
+                  <ClockCircleOutlined />{" "}
+                  {new Date(row.updated_at).toLocaleString("zh-CN", {
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </span>
                 <span>{row.owner}</span>
+                <span>
+                  {row.state === "PENDING_SUPERVISOR_APPROVAL" &&
+                  ["SUPERVISOR", "RISK_MANAGER", "ADMIN"].includes(
+                    principal?.role ?? "AGENT",
+                  ) ? (
+                    <Button
+                      size="small"
+                      type="link"
+                      loading={resolvingCaseId === row.id}
+                      onClick={() =>
+                        void resolveSupervisorCase(row.id, row.severity)
+                      }
+                    >
+                      批准升级
+                    </Button>
+                  ) : (
+                    "—"
+                  )}
+                </span>
               </div>
             ))}
+            {!loading && (snapshot?.queue.length ?? 0) === 0 && (
+              <div className="queue-empty">当前没有待处理升级案例</div>
+            )}
           </div>
         </article>
 
@@ -1112,22 +1366,41 @@ function Dashboard() {
             <div className="chart-title">
               <div>
                 <h2>服务承诺健康度</h2>
-                <p>当前未关闭承诺</p>
+                <p>基于未兑现承诺事件</p>
               </div>
             </div>
             <div className="sla-score">
               <div>
-                <strong>92</strong>
+                <strong>
+                  {Math.max(0, 100 - (totals?.overdue_promises ?? 0) * 10)}
+                </strong>
                 <span>/ 100</span>
               </div>
-              <Progress percent={92} showInfo={false} strokeColor="#13a671" />
+              <Progress
+                percent={Math.max(
+                  0,
+                  100 - (totals?.overdue_promises ?? 0) * 10,
+                )}
+                showInfo={false}
+                strokeColor="#13a671"
+              />
             </div>
             <div className="sla-stats">
               <span>
-                <b>7</b> 即将超时
+                <b>{totals?.pending_actions ?? 0}</b> 待处理动作
               </span>
               <span>
-                <b className="danger">3</b> 已超时
+                <b className="danger">
+                  {totals?.dead_letter_actions ?? 0}
+                </b>{" "}
+                死信
+              </span>
+              <span>
+                <b>{totals?.repeat_complaints ?? 0}</b> 重复投诉
+              </span>
+              <span>
+                <b className="danger">{totals?.overdue_promises ?? 0}</b>{" "}
+                超时承诺
               </span>
             </div>
           </article>
@@ -1135,10 +1408,42 @@ function Dashboard() {
             <SafetyCertificateOutlined />
             <div>
               <b>风险引擎健康</b>
-              <p>模型异常时默认进入 REVIEW_REQUIRED，不会静默降级为低风险。</p>
+              <p>
+                硬规则优先；证据缺失进入 REVIEW_FAILED，异常默认人工复核。
+              </p>
             </div>
           </article>
         </aside>
+      </section>
+
+      <section className="panel architecture-card">
+        <div className="chart-title">
+          <div>
+            <h2>技术选型落实矩阵</h2>
+            <p>与重构方案逐项对应，可由接口、持久化记录和 Engineering Harness 验证</p>
+          </div>
+          <Tag color="success">受控闭环</Tag>
+        </div>
+        <div className="architecture-grid">
+          {[
+            ["Harness", "鉴权、脱敏、幂等 Run、Trace 与事务审批"],
+            ["3 个受控 Agent", "Triage / Copilot / Review 结构化 Artifact"],
+            ["确定性服务", "Risk / Evidence / ToolPolicy / CaseWorkflow"],
+            ["人工审批门", "接受、编辑、拒绝、请求主管与主管升级"],
+            ["Transactional Outbox", "CAS 抢占、重试、退避、死信、幂等执行"],
+            ["REST + SSE", "断线轮询降级、事件游标、心跳与中止处理"],
+            ["D1 / PostgreSQL", "线上持久化 + LangGraph/pgvector 生产参考"],
+            ["Engineering Harness", "路由、风险、证据、权限、并发与工具测试"],
+          ].map(([title, detail]) => (
+            <div key={title}>
+              <CheckCircleFilled />
+              <span>
+                <b>{title}</b>
+                <small>{detail}</small>
+              </span>
+            </div>
+          ))}
+        </div>
       </section>
     </main>
   );
@@ -1147,6 +1452,41 @@ function Dashboard() {
 export default function Home() {
   const [view, setView] = useState<ViewKey>("workbench");
   const [scenario, setScenario] = useState<ScenarioKey>("refund");
+  const [principal, setPrincipal] = useState<CurrentPrincipal | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.all([getCurrentPrincipal(), getDashboard()])
+      .then(([identity, dashboard]) => {
+        if (!active) return;
+        setPrincipal(identity);
+        setPendingApprovals(
+          dashboard.totals.waiting_approval +
+            dashboard.totals.pending_supervisor,
+        );
+      })
+      .catch(() => {
+        if (!active) return;
+        setPrincipal({
+          email: "local-agent@carepulse.invalid",
+          display_name: "本地客服",
+          role: "AGENT",
+        });
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const roleLabel: Record<string, string> = {
+    AGENT: "客服专员",
+    SUPERVISOR: "客服主管",
+    RISK_MANAGER: "风险经理",
+    ADMIN: "系统管理员",
+  };
+  const displayName = principal?.display_name || principal?.email || "正在识别";
+  const avatarText = displayName.slice(0, 1).toUpperCase();
 
   return (
     <ConfigProvider
@@ -1205,25 +1545,30 @@ export default function Home() {
               <span />
               运行状态见工作台
             </div>
-            <Tooltip title="演示队列：待审批 6 项">
-              <Badge count={6} size="small">
+            <Tooltip title={`当前授权范围：待审批 ${pendingApprovals} 项`}>
+              <Badge count={pendingApprovals} size="small">
                 <Button shape="circle" icon={<AuditOutlined />} aria-label="审批通知" />
               </Badge>
             </Tooltip>
             <div className="operator">
-              <Avatar size={34}>王</Avatar>
+              <Avatar size={34}>{avatarText}</Avatar>
               <div>
-                <b>王悦</b>
-                <span>高级客服</span>
+                <b>{displayName}</b>
+                <span>{roleLabel[principal?.role ?? "AGENT"]}</span>
               </div>
             </div>
           </div>
         </header>
 
         {view === "workbench" ? (
-          <Workbench key={scenario} scenarioKey={scenario} onScenario={setScenario} />
+          <Workbench
+            key={scenario}
+            scenarioKey={scenario}
+            onScenario={setScenario}
+            principal={principal}
+          />
         ) : (
-          <Dashboard />
+          <Dashboard principal={principal} />
         )}
       </div>
     </ConfigProvider>

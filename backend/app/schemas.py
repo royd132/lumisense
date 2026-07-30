@@ -115,9 +115,16 @@ class TraceEvent(BaseModel):
     state_before: CaseState
     state_after: CaseState
     latency_ms: int
+    model: str | None = None
+    model_version: str | None = None
     prompt_version: str | None = None
+    input_hash: str | None = None
+    tool_calls: list[str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     risk_signals: list[str] = Field(default_factory=list)
+    agent_output: dict[str, Any] = Field(default_factory=dict)
+    validator_output: dict[str, Any] = Field(default_factory=dict)
+    token_usage: dict[str, int] = Field(default_factory=dict)
     fallback_used: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 

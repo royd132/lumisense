@@ -9,9 +9,11 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from .db_models import (
+    AgentArtifact,
     AgentRun,
     ApprovalEvent,
     OutboxEvent,
+    RiskEvent,
     RunEvent,
     RunStep,
     ServiceCase,
@@ -27,7 +29,12 @@ class SqlRunStore:
         self.sessions = sessions
 
     async def create(
-        self, run_id: str, case_id: str, request: AnalyzeRequest, sanitized_input: str
+        self,
+        run_id: str,
+        case_id: str,
+        request: AnalyzeRequest,
+        sanitized_input: str,
+        owner_agent_id: str,
     ) -> RunRecord:
         async with self.sessions.begin() as session:
             session.add(
@@ -37,6 +44,7 @@ class SqlRunStore:
                     customer_id=request.customer_id,
                     original_input=request.text,
                     sanitized_input=sanitized_input,
+                    owner_agent_id=owner_agent_id,
                     state=CaseState.OPEN,
                     route=None,
                 )
@@ -51,7 +59,12 @@ class SqlRunStore:
                     error=None,
                 )
             )
-        return RunRecord(case_id=case_id, request=request, sanitized_input=sanitized_input)
+        return RunRecord(
+            case_id=case_id,
+            request=request,
+            sanitized_input=sanitized_input,
+            owner_agent_id=owner_agent_id,
+        )
 
     async def _record(self, session: AsyncSession, run: AgentRun) -> RunRecord:
         case = await session.get(ServiceCase, run.case_id)
@@ -66,6 +79,7 @@ class SqlRunStore:
             case_id=run.case_id,
             request=AnalyzeRequest.model_validate(run.request_json),
             sanitized_input=case.sanitized_input if case else "",
+            owner_agent_id=case.owner_agent_id if case else "",
             status=run.status,
             events=[{"event": item.event_type, "data": item.data} for item in events],
             result=(
@@ -123,6 +137,46 @@ class SqlRunStore:
             if case:
                 case.state = result.state
                 case.route = result.route
+                case.risk_severity = result.risk.severity
+            artifact_rows = {
+                "triage": (result.triage.model_dump(mode="json"), "triage_v1"),
+                "risk": (result.risk.model_dump(mode="json"), None),
+                "evidence": (result.evidence.model_dump(mode="json"), None),
+                "copilot": (result.copilot.model_dump(mode="json"), "copilot_v1"),
+                "review": (result.review.model_dump(mode="json"), "review_v1"),
+            }
+            for artifact_type, (data, prompt_version) in artifact_rows.items():
+                await session.execute(
+                    insert(AgentArtifact)
+                    .values(
+                        run_id=run_id,
+                        artifact_type=artifact_type,
+                        data=data,
+                        prompt_version=prompt_version,
+                    )
+                    .on_conflict_do_update(
+                        constraint="uq_agent_artifact_run_type",
+                        set_={"data": data, "prompt_version": prompt_version},
+                    )
+                )
+            await session.execute(
+                insert(RiskEvent)
+                .values(
+                    id=f"risk_{run.case_id}",
+                    case_id=run.case_id,
+                    severity=result.risk.severity,
+                    signals=result.risk.signals,
+                    rule_ids=result.risk.rule_ids,
+                )
+                .on_conflict_do_update(
+                    index_elements=[RiskEvent.id],
+                    set_={
+                        "severity": result.risk.severity,
+                        "signals": result.risk.signals,
+                        "rule_ids": result.risk.rule_ids,
+                    },
+                )
+            )
             session.add(
                 RunEvent(
                     run_id=run_id,
@@ -197,9 +251,7 @@ class SqlRunStore:
             if edited_reply:
                 result = result.model_copy(
                     update={
-                        "copilot": result.copilot.model_copy(
-                            update={"draft_reply": edited_reply}
-                        )
+                        "copilot": result.copilot.model_copy(update={"draft_reply": edited_reply})
                     }
                 )
             run.result_json = result.model_dump(mode="json")

@@ -2,23 +2,26 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+import { Miniflare } from "miniflare";
 
-  return worker.fetch(
-    new Request("http://localhost/", { headers: { accept: "text/html" } }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
+async function render() {
+  const mf = new Miniflare({
+    compatibilityDate: "2026-05-22",
+    compatibilityFlags: ["nodejs_compat"],
+    modules: true,
+    modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+    scriptPath: "dist/server/index.js",
+    d1Databases: { DB: `carepulse-render-${process.pid}-${Date.now()}` },
+    serviceBindings: {
+      ASSETS: async () => new Response("Not found", { status: 404 }),
     },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
-  );
+  });
+  const response = await mf.dispatchFetch("http://localhost/", {
+    headers: { accept: "text/html" },
+  });
+  const buffered = new Response(await response.arrayBuffer(), response);
+  await mf.dispose();
+  return buffered;
 }
 
 test("server-renders the CarePulse workbench with an honest runtime mode", async () => {

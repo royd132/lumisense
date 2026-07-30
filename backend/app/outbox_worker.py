@@ -8,16 +8,23 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from .db import create_database, ensure_schema
+from .db import create_database
 from .db_models import ActionExecution, OutboxEvent
 
 log = structlog.get_logger()
 MAX_ATTEMPTS = 5
+SUPPORTED_ACTIONS = {
+    "VERIFY_REFUND_ELIGIBILITY",
+    "ESCALATE_PRODUCT_SAFETY",
+    "NOTIFY_DUTY_MANAGER",
+}
 
 
 async def dispatch(event: OutboxEvent) -> dict:
     """Create a controlled internal task; external OMS/CRM calls belong in typed adapters."""
 
+    if event.action_type not in SUPPORTED_ACTIONS:
+        raise RuntimeError(f"unsupported controlled action: {event.action_type}")
     log.info(
         "outbox_internal_task",
         event_id=event.id,
@@ -73,16 +80,13 @@ async def process_batch(sessions) -> int:
                     event.status = "DEAD_LETTER"
                 else:
                     event.status = "RETRY"
-                    event.next_attempt_at = now + timedelta(
-                        seconds=min(300, 2**event.attempts)
-                    )
+                    event.next_attempt_at = now + timedelta(seconds=min(300, 2**event.attempts))
     return processed
 
 
 async def main() -> None:
     database_url = os.environ["DATABASE_URL"]
     engine, sessions = create_database(database_url)
-    await ensure_schema(engine)
     try:
         while True:
             processed = await process_batch(sessions)

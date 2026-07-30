@@ -2,6 +2,9 @@
 
 CarePulse 是一版“证据驱动的消费者共情客服 Copilot”MVP。它不自动替代客服，也不输出伪精确的情绪分数；系统把消费者语言、业务事实、政策依据、风险信号和人工决策组织为一条可验证、可审查、可恢复的服务链路。
 
+逐条需求、实现位置、运行 Profile 与验收命令见
+[`docs/requirements-coverage.md`](docs/requirements-coverage.md)。
+
 ## 这一版包含什么
 
 - 三栏客服工作台：会话、Copilot 建议、证据与风险
@@ -17,7 +20,8 @@ CarePulse 是一版“证据驱动的消费者共情客服 Copilot”MVP。它�
 - 角色/Scope 审批策略，回复审批与动作审批相互独立
 - PostgreSQL 事务 Outbox、`SKIP LOCKED` Worker、指数退避与死信状态
 - SQLAlchemy 2 的案例、Run/Step/Event、审批、Outbox 与政策向量数据模型
-- Prometheus 指标与结构化日志
+- Alembic 迁移、PostgreSQL FTS + pgvector 混合检索与批准政策种子数据
+- Prometheus 指标、OpenTelemetry Span 与结构化日志
 - FAQ、退款、安全、证据缺失、权限绕过、interrupt/resume 等工程测试
 - PostgreSQL + pgvector 的 Docker Compose 基线
 
@@ -57,7 +61,7 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload --port 8000
 ```
 
-或启动 PostgreSQL 与 API：
+或启动 PostgreSQL、迁移、API 与独立 Worker：
 
 ```bash
 export CAREPULSE_JWT_SECRET="replace-with-a-long-random-secret"
@@ -82,6 +86,8 @@ VALUES ('supervisor@example.com', 'SUPERVISOR', datetime('now'));
 - `POST /api/v1/runs`：创建异步分析运行
 - `GET /api/v1/runs/{run_id}/events`：订阅 SSE 进度与 Trace
 - `GET /api/v1/runs/{run_id}`：获取结构化分析结果
+- `GET /api/v1/dashboard`：获取当前身份范围内的风险聚合
+- `GET /api/v1/me`：获取可信身份与角色
 - `POST /api/v1/analyze`：工程测试用同步分析
 - `POST /api/v1/cases/{case_id}/approval`：人工接受、编辑、拒绝或升级
 - `GET /metrics`：Prometheus 指标
@@ -90,4 +96,6 @@ VALUES ('supervisor@example.com', 'SUPERVISOR', datetime('now'));
 
 当前三个 Agent 使用确定性结构化 fallback，便于无密钥演示与回归测试。生产接入时，只替换 `TriageAgent`、`CopilotAgent` 和 `ReviewAgent` 的方法体为同一个模型 API 的三套 JSON Schema 调用；风险规则、证据服务、校验器、审批门和副作用队列保持独立。
 
-本地默认使用内存适配器；`docker compose up --build` 会切换到 PostgreSQL 运行存储与持久化 LangGraph checkpoint，并单独启动 Outbox Worker。CRM、OMS 和产品库仍是可替换的 typed mock adapter。
+本地默认使用内存适配器；`docker compose up --build` 会先执行 Alembic，
+再切换到 PostgreSQL 运行存储、混合政策检索与持久化 LangGraph checkpoint，
+并单独启动 Outbox Worker。CRM、OMS 和产品库仍是可替换的 typed mock adapter。

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from .schemas import (
     AnalyzeRequest,
+    CaseState,
     CopilotResult,
     EvidenceItem,
     EvidencePacket,
@@ -24,10 +26,12 @@ class SanitizationService:
 
     _phone = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
     _email = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
+    _address = re.compile(r"(地址|住址)[：:]\s*[^，。\n]{4,80}")
 
     def sanitize(self, text: str) -> str:
         text = self._phone.sub("[手机号已脱敏]", text)
-        return self._email.sub("[邮箱已脱敏]", text)
+        text = self._email.sub("[邮箱已脱敏]", text)
+        return self._address.sub("地址：[地址已脱敏]", text)
 
 
 class TriageAgent:
@@ -116,8 +120,50 @@ class RiskSignalEngine:
         )
 
 
+class CaseWorkflowService:
+    """Deterministic case transitions; graph text is never the state authority."""
+
+    _decision_targets: ClassVar[dict[str, CaseState]] = {
+        "REJECT": CaseState.REVIEW_FAILED,
+        "ESCALATE": CaseState.ESCALATED,
+        "ACCEPT": CaseState.APPROVED,
+        "EDIT": CaseState.APPROVED,
+    }
+    _allowed: ClassVar[dict[CaseState, set[CaseState]]] = {
+        CaseState.PENDING_AGENT_APPROVAL: {
+            CaseState.APPROVED,
+            CaseState.ESCALATED,
+            CaseState.REVIEW_FAILED,
+        },
+        CaseState.REVIEW_FAILED: {CaseState.REVIEW_FAILED},
+    }
+
+    def target_for_decision(self, decision: str) -> CaseState:
+        return self._decision_targets[decision]
+
+    def require_transition(
+        self,
+        current: CaseState,
+        target: CaseState,
+    ) -> None:
+        if target not in self._allowed.get(current, set()):
+            raise ValueError(f"transition {current} -> {target} is not allowed")
+
+
 class EvidenceService:
     """Typed mock adapters. Production adapters can be swapped without changing the graph."""
+
+    def __init__(
+        self,
+        policy_adapter: (
+            Callable[
+                [AnalyzeRequest, TriageResult],
+                Awaitable[list[EvidenceItem]],
+            ]
+            | None
+        ) = None,
+    ) -> None:
+        self.policy_adapter = policy_adapter
 
     _orders: ClassVar[dict[str, dict[str, Any]]] = {
         "ORDER_1024": {
@@ -128,6 +174,7 @@ class EvidenceService:
                 "amount": 389,
                 "signed_days": 2,
                 "damage_evidence": True,
+                "product_id": "FOUNDATION_P120",
             },
         },
         "ORDER_2088": {
@@ -137,6 +184,7 @@ class EvidenceService:
                 "amount": 499,
                 "signed_days": 5,
                 "batch": "B26C0719",
+                "product_id": "CREAM_B26C0719",
             },
         },
     }
@@ -174,15 +222,35 @@ class EvidenceService:
             source="CRM",
         )
 
-    async def _knowledge(self, triage: TriageResult) -> list[EvidenceItem]:
+    async def _knowledge(
+        self,
+        request: AnalyzeRequest,
+        triage: TriageResult,
+    ) -> list[EvidenceItem]:
         await asyncio.sleep(0)
+        if self.policy_adapter is not None:
+            retrieved = await self.policy_adapter(request, triage)
+            if retrieved:
+                return retrieved
         if triage.issue_type == "ADVERSE_REACTION":
+            product_id = str(
+                self._orders.get(request.order_id or "", {})
+                .get("metadata", {})
+                .get("product_id", request.product_id or "UNKNOWN_PRODUCT")
+            )
+            product_title = (
+                "持妆粉底液 P120 产品与安全资料"
+                if product_id == "FOUNDATION_P120"
+                else "玻色因紧致面霜 50ml / 批次 B26C0719"
+                if product_id == "CREAM_B26C0719"
+                else "待核验产品安全资料"
+            )
             return [
                 EvidenceItem(
-                    evidence_id="product:cream_b26c0719:safety",
+                    evidence_id=f"product:{product_id.lower()}:safety",
                     evidence_type="PRODUCT",
-                    title="面霜批次与安全资料",
-                    content="批次 B26C0719 已登记；不良反应原因不得在专业评估前推断。",
+                    title=product_title,
+                    content="已关联订单产品；不良反应原因不得在专业评估前推断。",
                     source="产品知识库",
                     version="v3",
                     metadata={"approval_status": "APPROVED"},
@@ -209,12 +277,21 @@ class EvidenceService:
                 ),
             ]
         if triage.intent == "REFUND_COMPLAINT":
+            damaged = triage.issue_type == "PRODUCT_DAMAGE"
             return [
                 EvidenceItem(
-                    evidence_id="policy:refund_v5:clause_3_2",
+                    evidence_id=(
+                        "policy:refund_damage_v5:clause_3_2"
+                        if damaged
+                        else "policy:refund_progress_v5:clause_4_1"
+                    ),
                     evidence_type="REFUND_POLICY",
-                    title="破损商品售后政策 §3.2",
-                    content="签收 7 日内且已有有效破损凭证，可发起退款资格核验。",
+                    title=("破损商品售后政策 §3.2" if damaged else "退款进度与时效政策 §4.1"),
+                    content=(
+                        "签收 7 日内且已有有效破损凭证，可发起退款资格核验。"
+                        if damaged
+                        else "退款状态与到账时间必须以 OMS/支付渠道核验结果为准，不得提前承诺。"
+                    ),
                     source="政策知识库",
                     version="v5",
                     clause_id="3.2",
@@ -263,7 +340,7 @@ class EvidenceService:
         order, history, knowledge, promise = await asyncio.gather(
             self._order(request),
             self._history(request),
-            self._knowledge(triage),
+            self._knowledge(request, triage),
             self._promise(request),
         )
         candidates = [order, history, promise, *knowledge]
@@ -342,9 +419,13 @@ class DeterministicValidator:
     ) -> list[ReviewViolation]:
         violations: list[ReviewViolation] = []
         available_ids = {item.evidence_id for item in evidence.items}
-        if not result.evidence_refs or any(ref not in available_ids for ref in result.evidence_refs):
+        if not result.evidence_refs or any(
+            ref not in available_ids for ref in result.evidence_refs
+        ):
             violations.append(
-                ReviewViolation(code="INVALID_EVIDENCE_REF", message="建议回复包含缺失或无效的证据引用")
+                ReviewViolation(
+                    code="INVALID_EVIDENCE_REF", message="建议回复包含缺失或无效的证据引用"
+                )
             )
         if evidence.missing:
             violations.append(
@@ -382,11 +463,15 @@ class ReviewAgent:
         if risk.severity == RiskSeverity.CRITICAL:
             if "暂停使用" not in copilot.draft_reply:
                 violations.append(
-                    ReviewViolation(code="SAFETY_STOP_USE_MISSING", message="安全事件回复缺少停用建议")
+                    ReviewViolation(
+                        code="SAFETY_STOP_USE_MISSING", message="安全事件回复缺少停用建议"
+                    )
                 )
             if not any(item.evidence_type == "RISK_POLICY" for item in evidence.items):
                 violations.append(
-                    ReviewViolation(code="RISK_POLICY_MISSING", message="高风险回复缺少升级政策证据")
+                    ReviewViolation(
+                        code="RISK_POLICY_MISSING", message="高风险回复缺少升级政策证据"
+                    )
                 )
         if copilot.uncertainties and not evidence.missing:
             violations.append(

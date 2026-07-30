@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from hashlib import sha256
 from time import perf_counter
 from typing import Any, TypedDict
 from uuid import uuid4
@@ -16,6 +17,7 @@ from .schemas import (
     CopilotResult,
     EvidencePacket,
     ReviewResult,
+    RiskSeverity,
     RiskSignal,
     TraceEvent,
     TriageResult,
@@ -68,11 +70,15 @@ CHECKPOINT_SCHEMA_TYPES = [
 
 
 class CarePulseOrchestrator:
-    def __init__(self, checkpointer: Any | None = None) -> None:
+    def __init__(
+        self,
+        checkpointer: Any | None = None,
+        evidence_service: EvidenceService | None = None,
+    ) -> None:
         self.sanitizer = SanitizationService()
         self.triage = TriageAgent()
         self.risk = RiskSignalEngine()
-        self.evidence = EvidenceService()
+        self.evidence = evidence_service or EvidenceService()
         self.copilot = CopilotAgent()
         self.validator = DeterministicValidator()
         self.reviewer = ReviewAgent()
@@ -98,6 +104,12 @@ class CarePulseOrchestrator:
                 state_before=before,
                 state_after=after,
                 latency_ms=max(1, int((perf_counter() - started) * 1000)),
+                model="deterministic_structured_fallback",
+                model_version="carepulse_v1",
+                input_hash=sha256(
+                    state.get("sanitized_text", state["request"].text).encode("utf-8")
+                ).hexdigest(),
+                fallback_used=True,
                 **extra,
             )
         )
@@ -110,16 +122,23 @@ class CarePulseOrchestrator:
         return {
             **state,
             "sanitized_text": sanitized,
-            "trace": self._trace(
-                state, "ingestion", CaseState.OPEN, CaseState.OPEN, started
-            ),
+            "trace": self._trace(state, "ingestion", CaseState.OPEN, CaseState.OPEN, started),
         }
 
     async def _triage_and_risk(self, state: GraphState) -> GraphState:
         started = perf_counter()
         request = state["request"]
         triage = await self.triage.run(request, state["sanitized_text"])
-        risk = self.risk.analyze(request)
+        try:
+            risk = self.risk.analyze(request)
+        except Exception:  # noqa: BLE001 - fail closed for every classifier failure
+            risk = RiskSignal(
+                risk_type="RISK_ENGINE_FALLBACK",
+                severity=RiskSeverity.REVIEW_REQUIRED,
+                signals=["风险引擎异常，已按保守策略转人工复核"],
+                rule_ids=["RISK-FALLBACK-000"],
+                confidence=1.0,
+            )
         route = (
             "HIGH_RISK"
             if risk.severity.value in {"HIGH", "CRITICAL", "REVIEW_REQUIRED"}
@@ -141,6 +160,10 @@ class CarePulseOrchestrator:
                 started,
                 risk_signals=risk.signals,
                 prompt_version="triage_v1",
+                agent_output={
+                    "triage": triage.model_dump(mode="json"),
+                    "risk": risk.model_dump(mode="json"),
+                },
             ),
         }
 
@@ -157,6 +180,7 @@ class CarePulseOrchestrator:
                 CaseState.EVIDENCE_PENDING,
                 started,
                 evidence_ids=[item.evidence_id for item in evidence.items],
+                tool_calls=sorted({f"read:{item.source}" for item in evidence.items}),
             ),
         }
 
@@ -177,6 +201,7 @@ class CarePulseOrchestrator:
                 started,
                 evidence_ids=copilot.evidence_refs,
                 prompt_version="copilot_v1",
+                agent_output=copilot.model_dump(mode="json"),
             ),
         }
 
@@ -193,11 +218,7 @@ class CarePulseOrchestrator:
             state["risk"],
             violations,
         )
-        after = (
-            CaseState.PENDING_AGENT_APPROVAL
-            if review.approved
-            else CaseState.REVIEW_FAILED
-        )
+        after = CaseState.PENDING_AGENT_APPROVAL if review.approved else CaseState.REVIEW_FAILED
         return {
             **state,
             "review": review,
@@ -210,6 +231,10 @@ class CarePulseOrchestrator:
                 started,
                 evidence_ids=state["copilot"].evidence_refs,
                 prompt_version="review_v1",
+                agent_output=review.model_dump(mode="json"),
+                validator_output={
+                    "violations": [item.model_dump(mode="json") for item in violations]
+                },
             ),
         }
 
@@ -224,7 +249,9 @@ class CarePulseOrchestrator:
         # Bounded once. A production LLM call receives only the review violations.
         copilot = state["copilot"].model_copy(
             update={
-                "draft_reply": state["copilot"].draft_reply.replace("立即退款", "优先提交退款资格复核")
+                "draft_reply": state["copilot"].draft_reply.replace(
+                    "立即退款", "优先提交退款资格复核"
+                )
             }
         )
         return {**state, "copilot": copilot, "revision_count": 1}

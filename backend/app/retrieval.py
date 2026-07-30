@@ -1,11 +1,32 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from hashlib import sha256
+from typing import ClassVar
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .db_models import PolicyChunk, PolicyDocument
+from .schemas import AnalyzeRequest, EvidenceItem, TriageResult
+
+
+def deterministic_embedding(text: str, dimensions: int = 1536) -> list[float]:
+    """Key-free development embedding; replace with the configured model adapter."""
+
+    normalized = "".join(text.lower().split())
+    grams = {
+        normalized[index : index + 2]
+        for index in range(max(1, len(normalized) - 1))
+        if normalized[index : index + 2]
+    }
+    values = [0.0] * dimensions
+    for gram in grams:
+        digest = sha256(gram.encode("utf-8")).digest()
+        index = int.from_bytes(digest[:4], "big") % dimensions
+        values[index] += 1.0
+    norm = sum(value * value for value in values) ** 0.5
+    return values if norm == 0 else [value / norm for value in values]
 
 
 class PolicyRetriever:
@@ -22,6 +43,7 @@ class PolicyRetriever:
         region: str = "CN",
         channel: str = "ONLINE",
         limit: int = 8,
+        evidence_types: list[str] | None = None,
     ) -> list[tuple[PolicyChunk, PolicyDocument]]:
         now = datetime.now(UTC)
         filters = (
@@ -47,4 +69,68 @@ class PolicyRetriever:
             .order_by(score.desc())
             .limit(limit)
         )
+        if evidence_types:
+            statement = statement.where(
+                PolicyChunk.chunk_metadata["evidence_type"].astext.in_(evidence_types)
+            )
         return list((await self.session.execute(statement)).all())
+
+
+class SqlPolicyEvidenceAdapter:
+    """Production EvidenceService adapter backed by metadata-filtered FTS + pgvector."""
+
+    KNOWLEDGE_TYPES: ClassVar[set[str]] = {
+        "PRODUCT",
+        "REFUND_POLICY",
+        "SAFETY_SOP",
+        "RISK_POLICY",
+        "CLAIM_POLICY",
+    }
+
+    def __init__(self, sessions) -> None:
+        self.sessions = sessions
+
+    async def __call__(
+        self,
+        request: AnalyzeRequest,
+        triage: TriageResult,
+    ) -> list[EvidenceItem]:
+        required = [item for item in triage.required_evidence if item in self.KNOWLEDGE_TYPES]
+        if not required:
+            return []
+        query = " ".join(
+            [
+                request.text,
+                triage.intent,
+                triage.issue_type,
+                *required,
+            ]
+        )
+        async with self.sessions() as session:
+            rows = await PolicyRetriever(session).search(
+                query,
+                embedding=deterministic_embedding(query),
+                evidence_types=required,
+                limit=32,
+            )
+        selected: dict[str, EvidenceItem] = {}
+        for chunk, document in rows:
+            evidence_type = str(chunk.chunk_metadata.get("evidence_type", "POLICY"))
+            if evidence_type in selected:
+                continue
+            selected[evidence_type] = EvidenceItem(
+                evidence_id=f"policy:{document.id}:{chunk.clause_id}",
+                evidence_type=evidence_type,
+                title=f"{document.title} §{chunk.clause_id}",
+                content=chunk.content,
+                source=document.title,
+                version=document.version,
+                clause_id=chunk.clause_id,
+                metadata={
+                    **chunk.chunk_metadata,
+                    "region": document.region,
+                    "channel": document.channel,
+                    "approval_status": document.approval_status,
+                },
+            )
+        return [selected[item] for item in required if item in selected]

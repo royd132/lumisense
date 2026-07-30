@@ -13,6 +13,7 @@ class RunRecord:
     case_id: str
     request: AnalyzeRequest
     sanitized_input: str
+    owner_agent_id: str
     status: str = "PROCESSING"
     events: list[dict[str, Any]] = field(default_factory=list)
     result: AnalysisResult | None = None
@@ -22,7 +23,12 @@ class RunRecord:
 
 class RuntimeStore(Protocol):
     async def create(
-        self, run_id: str, case_id: str, request: AnalyzeRequest, sanitized_input: str
+        self,
+        run_id: str,
+        case_id: str,
+        request: AnalyzeRequest,
+        sanitized_input: str,
+        owner_agent_id: str,
     ) -> RunRecord: ...
 
     async def get(self, run_id: str) -> RunRecord | None: ...
@@ -33,9 +39,7 @@ class RuntimeStore(Protocol):
 
     async def emit(self, run_id: str, event: str, data: dict[str, Any]) -> None: ...
 
-    async def save_result(
-        self, run_id: str, result: AnalysisResult, status: str
-    ) -> None: ...
+    async def save_result(self, run_id: str, result: AnalysisResult, status: str) -> None: ...
 
     async def fail(self, run_id: str, message: str) -> None: ...
 
@@ -64,13 +68,19 @@ class InMemoryRunStore:
         self._lock = asyncio.Lock()
 
     async def create(
-        self, run_id: str, case_id: str, request: AnalyzeRequest, sanitized_input: str
+        self,
+        run_id: str,
+        case_id: str,
+        request: AnalyzeRequest,
+        sanitized_input: str,
+        owner_agent_id: str,
     ) -> RunRecord:
         async with self._lock:
             record = RunRecord(
                 case_id=case_id,
                 request=request,
                 sanitized_input=sanitized_input,
+                owner_agent_id=owner_agent_id,
             )
             self.runs[run_id] = record
             self.case_to_run[case_id] = run_id
@@ -86,11 +96,7 @@ class InMemoryRunStore:
         return run_id, self.runs[run_id]
 
     async def list_processing(self) -> list[str]:
-        return [
-            run_id
-            for run_id, record in self.runs.items()
-            if record.status == "PROCESSING"
-        ]
+        return [run_id for run_id, record in self.runs.items() if record.status == "PROCESSING"]
 
     async def emit(self, run_id: str, event: str, data: dict[str, Any]) -> None:
         record = self.runs[run_id]
@@ -169,9 +175,7 @@ class InMemoryRunStore:
             if edited_reply:
                 updated = updated.model_copy(
                     update={
-                        "copilot": updated.copilot.model_copy(
-                            update={"draft_reply": edited_reply}
-                        )
+                        "copilot": updated.copilot.model_copy(update={"draft_reply": edited_reply})
                     }
                 )
             record.result = updated

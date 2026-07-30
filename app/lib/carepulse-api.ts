@@ -12,6 +12,11 @@ export type ApiAnalysis = {
     issue_type: string;
     explicit_request: string;
     implicit_goal: string;
+    entities: {
+      order_id: string | null;
+      product_id: string | null;
+    };
+    required_evidence: string[];
     confidence: number;
   };
   risk: {
@@ -37,16 +42,31 @@ export type ApiAnalysis = {
       reason: string;
       requires_approval: boolean;
     }[];
+    evidence_refs: string[];
+    uncertainties: string[];
   };
   review: {
     approved: boolean;
     violations: { code: string; message: string }[];
+    revision_required: boolean;
     confidence: number;
   };
   trace: {
     graph_node: string;
     latency_ms: number;
+    state_before: string;
     state_after: string;
+    model: string;
+    model_version: string;
+    prompt_version: string | null;
+    input_hash: string;
+    tool_calls: string[];
+    evidence_ids: string[];
+    risk_signals: string[];
+    agent_output: Record<string, unknown>;
+    validator_output: Record<string, unknown>;
+    token_usage: Record<string, number>;
+    fallback_used: boolean;
   }[];
 };
 
@@ -67,6 +87,16 @@ async function json<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function waitForRunResult(runId: string): Promise<ApiAnalysis> {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const response = await fetch(`${CAREPULSE_API_URL}/api/v1/runs/${runId}`);
+    if (response.ok) return response.json() as Promise<ApiAnalysis>;
+    if (response.status !== 409) return json<ApiAnalysis>(response);
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
+  throw new Error("Harness 运行超时，已保留案例供人工复核");
+}
+
 export async function startRun(
   input: RunInput,
   onTrace: (node: string) => void,
@@ -79,38 +109,53 @@ export async function startRun(
     }),
   );
 
-  await new Promise<void>((resolve, reject) => {
-    const stream = new EventSource(
-      `${CAREPULSE_API_URL}/api/v1/runs/${accepted.run_id}/events`,
-    );
-    stream.addEventListener("trace", (event) => {
-      const data = JSON.parse((event as MessageEvent).data) as { node: string };
-      onTrace(data.node);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const stream = new EventSource(
+        `${CAREPULSE_API_URL}/api/v1/runs/${accepted.run_id}/events`,
+      );
+      const timeout = window.setTimeout(() => {
+        stream.close();
+        reject(new Error("SSE timeout"));
+      }, 35000);
+      stream.addEventListener("trace", (event) => {
+        const data = JSON.parse((event as MessageEvent).data) as { node: string };
+        onTrace(data.node);
+      });
+      const finish = () => {
+        window.clearTimeout(timeout);
+        stream.close();
+        resolve();
+      };
+      stream.addEventListener("interrupt", finish);
+      stream.addEventListener("completed", finish);
+      stream.addEventListener("failed", () => {
+        window.clearTimeout(timeout);
+        stream.close();
+        reject(new Error("Harness 运行失败，已转人工复核"));
+      });
+      stream.onerror = () => {
+        window.clearTimeout(timeout);
+        stream.close();
+        reject(new Error("无法连接 Harness 事件流"));
+      };
     });
-    const finish = () => {
-      stream.close();
-      resolve();
-    };
-    stream.addEventListener("interrupt", finish);
-    stream.addEventListener("completed", finish);
-    stream.addEventListener("failed", () => {
-      stream.close();
-      reject(new Error("Harness 运行失败，已转人工复核"));
-    });
-    stream.onerror = () => {
-      stream.close();
-      reject(new Error("无法连接 Harness 事件流"));
-    };
-  });
+  } catch {
+    // SSE can be interrupted by a proxy or a backgrounded browser tab. The
+    // persisted run remains authoritative, so fall back to bounded polling.
+  }
 
-  return json<ApiAnalysis>(
-    await fetch(`${CAREPULSE_API_URL}/api/v1/runs/${accepted.run_id}`),
-  );
+  return waitForRunResult(accepted.run_id);
 }
 
 export async function approveCase(
   caseId: string,
-  decision: "ACCEPT" | "EDIT" | "REJECT" | "ESCALATE",
+  decision:
+    | "ACCEPT"
+    | "EDIT"
+    | "REJECT"
+    | "ESCALATE"
+    | "REQUEST_ESCALATION",
   editedReply: string,
   approvedActionIds: string[],
 ) {
@@ -125,6 +170,54 @@ export async function approveCase(
         edited_reply: decision === "EDIT" ? editedReply : undefined,
         approved_action_ids: approvedActionIds,
       }),
+    }),
+  );
+}
+
+export type CurrentPrincipal = {
+  email: string;
+  display_name: string;
+  role: string;
+  can_read_all_cases: boolean;
+};
+
+export type ApiDashboard = {
+  generated_at: string;
+  totals: {
+    cases: number;
+    critical: number;
+    high: number;
+    waiting_approval: number;
+    pending_supervisor: number;
+    repeat_complaints: number;
+    overdue_promises: number;
+    pending_actions: number;
+    dead_letter_actions: number;
+  };
+  approval_rate: number;
+  average_edit_rate: number;
+  risk_trend: { date: string; count: number }[];
+  issue_distribution: { issue: string; count: number }[];
+  queue: {
+    id: string;
+    state: string;
+    severity: string;
+    issue: string;
+    owner: string;
+    updated_at: string;
+  }[];
+};
+
+export async function getCurrentPrincipal() {
+  return json<CurrentPrincipal>(
+    await fetch(`${CAREPULSE_API_URL}/api/v1/me`, { cache: "no-store" }),
+  );
+}
+
+export async function getDashboard() {
+  return json<ApiDashboard>(
+    await fetch(`${CAREPULSE_API_URL}/api/v1/dashboard`, {
+      cache: "no-store",
     }),
   );
 }
