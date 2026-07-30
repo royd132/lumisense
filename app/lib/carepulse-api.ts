@@ -119,8 +119,6 @@ export async function approveCase(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Agent-Id": "supervisor_wang",
-        "X-Agent-Role": "SUPERVISOR",
       },
       body: JSON.stringify({
         decision,

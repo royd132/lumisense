@@ -6,23 +6,28 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
 from .db import create_database, ensure_schema
-from .db_models import OutboxEvent
+from .db_models import ActionExecution, OutboxEvent
 
 log = structlog.get_logger()
 MAX_ATTEMPTS = 5
 
 
-async def dispatch(event: OutboxEvent) -> None:
-    """Replace with typed OMS/CRM adapters; idempotency_key must be forwarded downstream."""
+async def dispatch(event: OutboxEvent) -> dict:
+    """Create a controlled internal task; external OMS/CRM calls belong in typed adapters."""
 
     log.info(
-        "outbox_dispatch",
+        "outbox_internal_task",
         event_id=event.id,
         action=event.action_type,
         idempotency_key=event.idempotency_key,
     )
+    return {
+        "external_dispatch": False,
+        "message": "Controlled action task created; external adapter not configured.",
+    }
 
 
 async def process_batch(sessions) -> int:
@@ -45,7 +50,19 @@ async def process_batch(sessions) -> int:
         )
         for event in events:
             try:
-                await dispatch(event)
+                result = await dispatch(event)
+                await session.execute(
+                    insert(ActionExecution)
+                    .values(
+                        id=f"exec_{event.id}",
+                        outbox_event_id=event.id,
+                        action_type=event.action_type,
+                        idempotency_key=event.idempotency_key,
+                        status="CREATED",
+                        result=result,
+                    )
+                    .on_conflict_do_nothing(index_elements=["idempotency_key"])
+                )
                 event.status = "PROCESSED"
                 event.processed_at = now
                 processed += 1

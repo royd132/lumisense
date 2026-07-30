@@ -522,7 +522,7 @@ function Workbench({
           selectedActionIds,
         );
         setNotice(
-          `审批已落库，状态 ${result.state}；${result.outbox_event_ids.length} 项明确选择的动作已进入 Outbox。`,
+          `审批已落库，状态 ${result.state}；${result.outbox_event_ids.length} 项明确选择的动作已由 Outbox 生成受控任务。`,
         );
       } catch {
         setNotice("审批未通过权限或状态校验，未写入任何副作用。");
@@ -1203,9 +1203,9 @@ export default function Home() {
           <div className="top-actions">
             <div className="system-health">
               <span />
-              系统稳定
+              运行状态见工作台
             </div>
-            <Tooltip title="今日待审批 6 项">
+            <Tooltip title="演示队列：待审批 6 项">
               <Badge count={6} size="small">
                 <Button shape="circle" icon={<AuditOutlined />} aria-label="审批通知" />
               </Badge>

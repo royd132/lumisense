@@ -20,6 +20,9 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://carepulse:carepulse_dev@postgres:5432/carepulse
       CAREPULSE_DEMO_MODE: "false"
+      CAREPULSE_JWT_SECRET: ${CAREPULSE_JWT_SECRET:-carepulse_local_change_me}
+      CAREPULSE_JWT_ISSUER: carepulse
+      CAREPULSE_JWT_AUDIENCE: carepulse-api
     ports:
       - "8000:8000"
     depends_on:

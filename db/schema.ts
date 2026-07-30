@@ -81,6 +81,7 @@ export const outboxEvents = sqliteTable(
     status: text("status").notNull().default("PENDING"),
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
+    processedAt: text("processed_at"),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -88,3 +89,28 @@ export const outboxEvents = sqliteTable(
     index("outbox_events_status_idx").on(table.status),
   ],
 );
+
+export const actionExecutions = sqliteTable(
+  "action_executions",
+  {
+    id: text("id").primaryKey(),
+    caseId: text("case_id")
+      .notNull()
+      .references(() => serviceCases.id),
+    actionType: text("action_type").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: text("status").notNull(),
+    resultJson: text("result_json").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("action_executions_idempotency_uq").on(table.idempotencyKey),
+    index("action_executions_case_idx").on(table.caseId),
+  ],
+);
+
+export const userRoles = sqliteTable("user_roles", {
+  email: text("email").primaryKey(),
+  role: text("role").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

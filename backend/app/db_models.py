@@ -98,6 +98,21 @@ class OutboxEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ActionExecution(Base):
+    __tablename__ = "action_executions"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_action_execution_idempotency"),
+    )
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    outbox_event_id: Mapped[str] = mapped_column(ForeignKey("outbox_events.id"), index=True)
+    action_type: Mapped[str] = mapped_column(String(80))
+    idempotency_key: Mapped[str] = mapped_column(String(240))
+    status: Mapped[str] = mapped_column(String(30), default="CREATED", index=True)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class PolicyDocument(Base):
     __tablename__ = "policy_documents"
 

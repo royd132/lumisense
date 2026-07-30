@@ -31,7 +31,9 @@ npm run dev
 ```
 
 默认使用站点内置的同源 Edge Harness；线上运行、Trace、人工停点、审批与
-Outbox 状态会持久化到 D1。若需改连本地 Python/LangGraph Harness，可设置：
+Outbox 状态会持久化到 D1。Outbox 消费后生成幂等的受控动作任务；在接入正式
+OMS/CRM adapter 前不会伪装成已完成外部操作。若需改连本地 Python/LangGraph
+Harness，可设置：
 
 ```bash
 NEXT_PUBLIC_CAREPULSE_API_URL=http://localhost:8000
@@ -58,10 +60,22 @@ uvicorn app.main:app --reload --port 8000
 或启动 PostgreSQL 与 API：
 
 ```bash
+export CAREPULSE_JWT_SECRET="replace-with-a-long-random-secret"
 docker compose up --build
 ```
 
 API 文档位于 `http://localhost:8000/docs`，健康检查位于 `http://localhost:8000/health`。
+非演示模式只接受由 `CAREPULSE_JWT_SECRET` 验证的 HS256 JWT，且要求
+`sub`、`role`、`exp`、`iss=carepulse` 和 `aud=carepulse-api`；身份与角色不会从
+客户端 `X-Agent-*` 请求头读取。
+
+线上 Edge Harness 从 D1 的 `user_roles` 表读取角色，未配置用户默认是 `AGENT`。
+主管权限必须由运维显式写入该表，例如：
+
+```sql
+INSERT INTO user_roles (email, role, updated_at)
+VALUES ('supervisor@example.com', 'SUPERVISOR', datetime('now'));
+```
 
 ## 关键接口
 

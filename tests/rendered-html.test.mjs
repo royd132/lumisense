@@ -48,7 +48,7 @@ test("keeps REST, SSE and explicit action approval in the client contract", asyn
   assert.match(api, /NEXT_PUBLIC_CAREPULSE_API_ENABLED/);
   assert.match(api, /new EventSource/);
   assert.match(api, /approved_action_ids/);
-  assert.match(api, /X-Agent-Role/);
+  assert.doesNotMatch(api, /X-Agent-(?:Id|Role)/);
   assert.match(page, /type="checkbox"/);
   assert.match(page, /演示回退/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@tanstack\/react-query/);
