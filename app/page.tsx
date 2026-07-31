@@ -11,6 +11,7 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   EditOutlined,
+  ExperimentOutlined,
   HistoryOutlined,
   MessageOutlined,
   MoreOutlined,
@@ -39,17 +40,20 @@ import {
   ApiDashboard,
   ApiAnalysis,
   CurrentPrincipal,
+  EvaluationReport,
   approveCase,
   CAREPULSE_API_ENABLED,
   getCurrentPrincipal,
   getDashboard,
+  getEvaluationReport,
   RunInput,
   startRun,
 } from "./lib/carepulse-api";
 
 type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-type ScenarioKey = "faq" | "refund" | "safety";
-type ViewKey = "workbench" | "dashboard";
+type DemoScenarioKey = "faq" | "refund" | "safety";
+type ScenarioKey = DemoScenarioKey | "challenge";
+type ViewKey = "workbench" | "dashboard" | "evaluation";
 
 type Evidence = {
   kind: "政策" | "订单" | "历史" | "产品";
@@ -91,9 +95,22 @@ type Scenario = {
     detail: string;
   };
   trace: { name: string; detail: string; ms: number; state: "done" | "warn" }[];
+  runtime: ApiAnalysis["runtime"];
 };
 
-const scenarios: Record<ScenarioKey, Scenario> = {
+const previewRuntime: ApiAnalysis["runtime"] = {
+  harness: "EDGE_D1",
+  model_mode: "STRUCTURED_FALLBACK",
+  model: "正在验证",
+  fallback_reason: "awaiting_runtime",
+  model_latency_ms: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+};
+
+const demoScenarioKeys: DemoScenarioKey[] = ["faq", "refund", "safety"];
+
+const scenarios: Record<DemoScenarioKey, Scenario> = {
   faq: {
     short: "A",
     label: "普通 FAQ",
@@ -158,6 +175,7 @@ const scenarios: Record<ScenarioKey, Scenario> = {
       { name: "Copilot Agent", detail: "生成带引用的建议回复", ms: 612, state: "done" },
       { name: "Review Agent", detail: "合规与事实审查通过", ms: 274, state: "done" },
     ],
+    runtime: previewRuntime,
   },
   refund: {
     short: "B",
@@ -237,6 +255,7 @@ const scenarios: Record<ScenarioKey, Scenario> = {
       { name: "Validators", detail: "金额、时间、引用、权限校验通过", ms: 18, state: "done" },
       { name: "Review Agent", detail: "事实与政策审查通过", ms: 291, state: "done" },
     ],
+    runtime: previewRuntime,
   },
   safety: {
     short: "C",
@@ -316,6 +335,7 @@ const scenarios: Record<ScenarioKey, Scenario> = {
       { name: "Copilot Agent", detail: "生成安全优先的建议回复", ms: 731, state: "done" },
       { name: "Review Agent", detail: "高风险独立审查通过", ms: 326, state: "done" },
     ],
+    runtime: previewRuntime,
   },
 };
 
@@ -327,7 +347,7 @@ const processingSteps = [
   "正在执行独立审查",
 ];
 
-const runInputs: Record<ScenarioKey, RunInput> = {
+const runInputs: Record<DemoScenarioKey, RunInput> = {
   faq: {
     conversation_id: "conv_faq_001",
     customer_id: "customer_lin",
@@ -349,6 +369,64 @@ const runInputs: Record<ScenarioKey, RunInput> = {
   },
 };
 
+function challengeScenario(input: RunInput): Scenario {
+  const order =
+    input.order_id === "ORDER_1024"
+      ? {
+          id: "ORDER_1024",
+          product: "持妆粉底液 P120",
+          amount: "¥389",
+          state: "待在线核验",
+          extra: "开放输入关联订单",
+        }
+      : input.order_id === "ORDER_2088"
+        ? {
+            id: "ORDER_2088",
+            product: "玻色因紧致面霜 50ml",
+            amount: "¥499",
+            state: "待在线核验",
+            extra: "批次：B26C0719",
+          }
+        : undefined;
+  return {
+    short: "✦",
+    label: "评委开放输入",
+    badge: "现场运行",
+    customer: "现场消费者",
+    meta: "随机挑战 · 服务原文仅在当前授权范围展示",
+    intent: "ANALYZING",
+    issue: "ANALYZING",
+    explicit: "等待结构化理解",
+    summary: "Harness 正在对现场输入执行脱敏、风险识别、证据检索与独立审查。",
+    serviceGoal: "生成可回溯、不可自动发送的人工客服建议。",
+    draft: "正在生成基于证据的建议回复……",
+    status: "PROCESSING",
+    severity: "MEDIUM",
+    confidence: 0,
+    riskSignals: [],
+    messages: [
+      {
+        by: "consumer",
+        text: input.text,
+        time: new Date().toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      },
+    ],
+    order,
+    evidence: [],
+    actions: [],
+    review: {
+      approved: false,
+      label: "等待独立审查",
+      detail: "建议回复在 Review Agent 和确定性校验通过前不可审批。",
+    },
+    trace: [],
+    runtime: previewRuntime,
+  };
+}
+
 function scenarioFromApi(base: Scenario, result: ApiAnalysis): Scenario {
   const evidenceTone = (type: string): Evidence["tone"] =>
     type === "ORDER" ? "blue" : type.includes("POLICY") || type.includes("SOP") ? "gold" : type === "PRODUCT" ? "green" : "violet";
@@ -357,6 +435,7 @@ function scenarioFromApi(base: Scenario, result: ApiAnalysis): Scenario {
 
   return {
     ...base,
+    runtime: result.runtime,
     intent: result.triage.intent,
     issue: result.triage.issue_type,
     explicit: result.triage.explicit_request,
@@ -447,12 +526,26 @@ function Workbench({
   scenarioKey,
   onScenario,
   principal,
+  customInput,
+  onCustomRun,
 }: {
   scenarioKey: ScenarioKey;
   onScenario: (key: ScenarioKey) => void;
   principal: CurrentPrincipal | null;
+  customInput: RunInput | null;
+  onCustomRun: (input: RunInput) => void;
 }) {
-  const baseScenario = scenarios[scenarioKey];
+  const baseScenario = useMemo(
+    () =>
+      scenarioKey === "challenge" && customInput
+        ? challengeScenario(customInput)
+        : scenarios[scenarioKey as DemoScenarioKey],
+    [customInput, scenarioKey],
+  );
+  const runInput =
+    scenarioKey === "challenge"
+      ? customInput
+      : runInputs[scenarioKey as DemoScenarioKey];
   const [scenario, setScenario] = useState(baseScenario);
   const [draft, setDraft] = useState(baseScenario.draft);
   const [processingIndex, setProcessingIndex] = useState(
@@ -468,12 +561,22 @@ function Workbench({
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [finalized, setFinalized] = useState(false);
+  const [challengeText, setChallengeText] = useState(customInput?.text ?? "");
+  const [challengeOrder, setChallengeOrder] = useState(
+    customInput?.order_id ?? "",
+  );
+  const [challengeRepeat, setChallengeRepeat] = useState(
+    (customInput?.contact_count ?? 1) >= 3,
+  );
+  const [challengeOverdue, setChallengeOverdue] = useState(
+    customInput?.previous_promise_overdue ?? false,
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (!CAREPULSE_API_ENABLED) return;
+    if (!CAREPULSE_API_ENABLED || !runInput) return;
     let active = true;
-    void startRun(runInputs[scenarioKey], (node) => {
+    void startRun(runInput, (node) => {
       if (!active) return;
       const order = ["ingest", "triage_and_risk", "evidence", "draft", "review"];
       setProcessingIndex(Math.max(0, order.indexOf(node)));
@@ -503,9 +606,9 @@ function Workbench({
     return () => {
       active = false;
     };
-  }, [baseScenario, scenarioKey]);
+  }, [baseScenario, runInput]);
 
-  const switchScenario = (key: ScenarioKey) => {
+  const switchScenario = (key: DemoScenarioKey) => {
     if (key === scenarioKey) return;
     if (CAREPULSE_API_ENABLED) {
       onScenario(key);
@@ -523,6 +626,32 @@ function Workbench({
         setProcessingIndex(index);
       }
     }, 260);
+  };
+
+  const submitChallenge = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const text = challengeText.trim();
+    if (text.length < 6) {
+      setNotice("请至少输入 6 个字的真实客服问题，便于完成风险与证据判断。");
+      return;
+    }
+    const selectedProduct =
+      challengeOrder === "ORDER_1024"
+        ? "FOUNDATION_P120"
+        : challengeOrder === "ORDER_2088"
+          ? "CREAM_B26C0719"
+          : /玻尿酸|精华/.test(text)
+            ? "SERUM_HA30"
+            : undefined;
+    onCustomRun({
+      conversation_id: `judge_${Date.now()}`,
+      customer_id: "judge_live_consumer",
+      text,
+      ...(challengeOrder ? { order_id: challengeOrder } : {}),
+      ...(selectedProduct ? { product_id: selectedProduct } : {}),
+      contact_count: challengeRepeat ? 3 : 1,
+      previous_promise_overdue: challengeOverdue,
+    });
   };
 
   const approve = async () => {
@@ -623,16 +752,80 @@ function Workbench({
 
   const severity = severityMeta[scenario.severity];
   const totalMs = scenario.trace.reduce((sum, item) => sum + item.ms, 0);
+  const runtimePending = scenario.runtime.model === "正在验证";
+  const liveModel = scenario.runtime.model_mode === "LIVE_MODEL";
+  const fallbackLabel: Record<string, string> = {
+    awaiting_runtime: "正在核验模型运行状态",
+    api_key_not_configured: "模型密钥未配置，使用可重复结构化回退",
+    model_timeout: "模型超时，已安全切换结构化回退",
+    model_unavailable: "模型暂不可用，已安全切换结构化回退",
+  };
 
   return (
     <main className="workbench-shell">
+      <form className="judge-console" onSubmit={submitChallenge}>
+        <div className="judge-console-title">
+          <span className="judge-icon">
+            <ExperimentOutlined />
+          </span>
+          <div>
+            <span className="eyebrow">JUDGE CHALLENGE</span>
+            <strong>粘贴任意美妆客服问题，现场验证非脚本化链路</strong>
+          </div>
+        </div>
+        <textarea
+          value={challengeText}
+          onChange={(event) => setChallengeText(event.target.value)}
+          maxLength={1200}
+          placeholder="例如：昨晚用了面霜后脸上发痒，之前联系两次都没处理，我准备去投诉……"
+          aria-label="评委开放投诉输入"
+        />
+        <div className="judge-controls">
+          <select
+            value={challengeOrder}
+            onChange={(event) => setChallengeOrder(event.target.value)}
+            aria-label="关联演示订单"
+          >
+            <option value="">不关联订单</option>
+            <option value="ORDER_1024">ORDER_1024 · 粉底液</option>
+            <option value="ORDER_2088">ORDER_2088 · 面霜</option>
+          </select>
+          <label>
+            <input
+              type="checkbox"
+              checked={challengeRepeat}
+              onChange={(event) => setChallengeRepeat(event.target.checked)}
+            />
+            已重复联系
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={challengeOverdue}
+              onChange={(event) => setChallengeOverdue(event.target.checked)}
+            />
+            历史承诺超时
+          </label>
+        </div>
+        <Button
+          type="primary"
+          htmlType="submit"
+          icon={<ExperimentOutlined />}
+          loading={scenarioKey === "challenge" && processingIndex >= 0}
+          disabled={!challengeText.trim()}
+        >
+          现场分析
+        </Button>
+        <small>输入先脱敏；建议不自动发送；副作用仍需人工审批</small>
+      </form>
+
       <section className="scenario-strip" aria-label="演示场景">
         <div className="scenario-intro">
           <span className="eyebrow">DEMO PATHS</span>
           <strong>三条可验证业务链路</strong>
         </div>
         <div className="scenario-options">
-          {(Object.keys(scenarios) as ScenarioKey[]).map((key) => {
+          {demoScenarioKeys.map((key) => {
             const item = scenarios[key];
             return (
               <button
@@ -667,6 +860,35 @@ function Workbench({
                 : "无后端副作用"}
           </small>
         </div>
+      </section>
+
+      <section
+        className={`model-proof ${liveModel ? "is-live" : "is-fallback"} ${runtimePending ? "is-pending" : ""}`}
+        aria-label="模型运行证明"
+      >
+        <div>
+          <span className="model-proof-dot" />
+          <strong>
+            {runtimePending
+              ? "VERIFYING MODEL"
+              : liveModel
+                ? "LIVE MODEL"
+                : "SAFE FALLBACK"}
+          </strong>
+        </div>
+        <span className="model-name">{scenario.runtime.model}</span>
+        <p>
+          {runtimePending
+            ? "正在读取本轮 Trace"
+            : liveModel
+              ? `Triage / Copilot / Review 三次结构化调用 · ${scenario.runtime.model_latency_ms}ms · ${scenario.runtime.input_tokens + scenario.runtime.output_tokens} tokens`
+              : fallbackLabel[scenario.runtime.fallback_reason ?? ""] ??
+                "确定性 Harness 回退已启用"}
+        </p>
+        <code>
+          {liveModel ? "fallback_used=false" : "fallback_used=true"} · JSON
+          Schema · validators
+        </code>
       </section>
 
       {processingIndex >= 0 && (
@@ -1449,9 +1671,170 @@ function Dashboard({ principal }: { principal: CurrentPrincipal | null }) {
   );
 }
 
+function EvaluationEvidence() {
+  const [report, setReport] = useState<EvaluationReport | null>(null);
+  const [error, setError] = useState("");
+
+  const load = async () => {
+    setError("");
+    try {
+      setReport(await getEvaluationReport());
+    } catch {
+      setError("评测报告暂时不可用，请稍后重新计算。");
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    void getEvaluationReport()
+      .then((result) => {
+        if (active) setReport(result);
+      })
+      .catch(() => {
+        if (active) setError("评测报告暂时不可用，请稍后重新计算。");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <main className="evaluation-shell">
+      <section className="evaluation-hero">
+        <div>
+          <span className="eyebrow">COMPETITION EVIDENCE</span>
+          <h1>不是功能清单，是可复现的效果证据</h1>
+          <p>
+            每次打开都从同一套匿名化测试集重新计算；公开局限，不把工程回归冒充真实业务提升。
+          </p>
+        </div>
+        <div className="evaluation-stamp">
+          <ExperimentOutlined />
+          <div>
+            <strong>{report?.methodology.cases ?? "—"}</strong>
+            <span>条美妆客服案例</span>
+          </div>
+          <Button icon={<ReloadOutlined />} onClick={() => void load()}>
+            重新计算
+          </Button>
+        </div>
+      </section>
+
+      {error && <div className="dashboard-error">{error}</div>}
+
+      <section className="evaluation-summary">
+        <article>
+          <span>评测口径</span>
+          <p>{report?.methodology.suite ?? "正在加载评测口径…"}</p>
+        </article>
+        <article>
+          <span>对照基线</span>
+          <p>{report?.methodology.baseline ?? "正在加载基线说明…"}</p>
+        </article>
+        <article className="limitation">
+          <span>诚实边界</span>
+          <p>{report?.methodology.limitation ?? "正在加载限制说明…"}</p>
+        </article>
+      </section>
+
+      <section className="panel evaluation-metrics">
+        <div className="chart-title">
+          <div>
+            <h2>CarePulse Harness vs. 固定模板基线</h2>
+            <p>结果由 /api/v1/evaluation 在线计算，目标值来自当前验收门槛</p>
+          </div>
+          <Tag color="success">{report?.report_version ?? "CALCULATING"}</Tag>
+        </div>
+        <div className="evaluation-table">
+          <div className="evaluation-row evaluation-head">
+            <span>指标</span>
+            <span>CarePulse</span>
+            <span>基线</span>
+            <span>验收目标</span>
+          </div>
+          {(report?.metrics ?? []).map((metric) => (
+            <div className="evaluation-row" key={metric.key}>
+              <span>
+                <b>{metric.label}</b>
+                <small>{metric.key}</small>
+              </span>
+              <span className="score-cell carepulse-score">
+                <strong>{metric.carepulse}%</strong>
+                <Progress
+                  percent={metric.carepulse}
+                  showInfo={false}
+                  strokeColor="#13a671"
+                />
+              </span>
+              <span className="score-cell baseline-score">
+                <strong>{metric.baseline}%</strong>
+                <Progress
+                  percent={metric.baseline}
+                  showInfo={false}
+                  strokeColor="#9ca5b3"
+                />
+              </span>
+              <span>
+                <Tag color="blue">{metric.target}</Tag>
+              </span>
+            </div>
+          ))}
+          {!report && <div className="evaluation-loading">正在执行 60 条回归案例…</div>}
+        </div>
+      </section>
+
+      <section className="evaluation-lower">
+        <article className="panel">
+          <div className="chart-title">
+            <div>
+              <h2>场景切片通过情况</h2>
+              <p>必须同时通过路由、风险、引用、承诺和独立审查</p>
+            </div>
+          </div>
+          <div className="slice-grid">
+            {(report?.slices ?? []).map((slice) => (
+              <div key={slice.name}>
+                <span>{slice.name}</span>
+                <strong>
+                  {slice.passed}/{slice.cases}
+                </strong>
+                <Progress
+                  percent={(slice.passed / slice.cases) * 100}
+                  showInfo={false}
+                  strokeColor={
+                    slice.passed === slice.cases ? "#13a671" : "#d9364f"
+                  }
+                />
+                <small>{slice.note}</small>
+              </div>
+            ))}
+          </div>
+        </article>
+        <article className="panel claim-card">
+          <div className="chart-title">
+            <div>
+              <h2>本报告可以证明什么</h2>
+              <p>只陈述当前测试能够支持的结论</p>
+            </div>
+          </div>
+          <div className="claim-list">
+            {(report?.claims ?? []).map((claim) => (
+              <div key={claim}>
+                <CheckCircleFilled />
+                <span>{claim}</span>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+    </main>
+  );
+}
+
 export default function Home() {
   const [view, setView] = useState<ViewKey>("workbench");
   const [scenario, setScenario] = useState<ScenarioKey>("refund");
+  const [customInput, setCustomInput] = useState<RunInput | null>(null);
   const [principal, setPrincipal] = useState<CurrentPrincipal | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState(0);
 
@@ -1513,7 +1896,7 @@ export default function Home() {
               <strong>CarePulse</strong>
               <span>证据驱动客服 Copilot</span>
             </div>
-            <Tag className="mvp-tag">MVP</Tag>
+            <Tag className="mvp-tag">EVAL BUILD</Tag>
           </div>
 
           <Segmented
@@ -1537,13 +1920,21 @@ export default function Home() {
                   </span>
                 ),
               },
+              {
+                value: "evaluation",
+                label: (
+                  <span>
+                    <ExperimentOutlined /> 评测证据
+                  </span>
+                ),
+              },
             ]}
           />
 
           <div className="top-actions">
             <div className="system-health">
               <span />
-              运行状态见工作台
+              运行证据可核验
             </div>
             <Tooltip title={`当前授权范围：待审批 ${pendingApprovals} 项`}>
               <Badge count={pendingApprovals} size="small">
@@ -1562,13 +1953,20 @@ export default function Home() {
 
         {view === "workbench" ? (
           <Workbench
-            key={scenario}
+            key={`${scenario}-${customInput?.conversation_id ?? "preset"}`}
             scenarioKey={scenario}
             onScenario={setScenario}
             principal={principal}
+            customInput={customInput}
+            onCustomRun={(input) => {
+              setCustomInput(input);
+              setScenario("challenge");
+            }}
           />
-        ) : (
+        ) : view === "dashboard" ? (
           <Dashboard principal={principal} />
+        ) : (
+          <EvaluationEvidence />
         )}
       </div>
     </ConfigProvider>

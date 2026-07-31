@@ -7,6 +7,15 @@ export type ApiAnalysis = {
   case_id: string;
   state: string;
   route: string;
+  runtime: {
+    harness: "EDGE_D1" | "PYTHON_LANGGRAPH";
+    model_mode: "LIVE_MODEL" | "STRUCTURED_FALLBACK";
+    model: string;
+    fallback_reason: string | null;
+    model_latency_ms: number;
+    input_tokens: number;
+    output_tokens: number;
+  };
   triage: {
     intent: string;
     issue_type: string;
@@ -75,8 +84,35 @@ export type RunInput = {
   customer_id: string;
   text: string;
   order_id?: string;
+  product_id?: string;
   contact_count?: number;
   previous_promise_overdue?: boolean;
+};
+
+export type EvaluationReport = {
+  report_version: string;
+  generated_at: string;
+  methodology: {
+    suite: string;
+    cases: number;
+    baseline: string;
+    limitation: string;
+  };
+  metrics: {
+    key: string;
+    label: string;
+    carepulse: number;
+    baseline: number;
+    unit: "percent" | "rate";
+    target: string;
+  }[];
+  slices: {
+    name: string;
+    cases: number;
+    passed: number;
+    note: string;
+  }[];
+  claims: string[];
 };
 
 async function json<T>(response: Response): Promise<T> {
@@ -88,7 +124,7 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 async function waitForRunResult(runId: string): Promise<ApiAnalysis> {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 480; attempt += 1) {
     const response = await fetch(`${CAREPULSE_API_URL}/api/v1/runs/${runId}`);
     if (response.ok) return response.json() as Promise<ApiAnalysis>;
     if (response.status !== 409) return json<ApiAnalysis>(response);
@@ -117,7 +153,7 @@ export async function startRun(
       const timeout = window.setTimeout(() => {
         stream.close();
         reject(new Error("SSE timeout"));
-      }, 35000);
+      }, 120000);
       stream.addEventListener("trace", (event) => {
         const data = JSON.parse((event as MessageEvent).data) as { node: string };
         onTrace(data.node);
@@ -217,6 +253,14 @@ export async function getCurrentPrincipal() {
 export async function getDashboard() {
   return json<ApiDashboard>(
     await fetch(`${CAREPULSE_API_URL}/api/v1/dashboard`, {
+      cache: "no-store",
+    }),
+  );
+}
+
+export async function getEvaluationReport() {
+  return json<EvaluationReport>(
+    await fetch(`${CAREPULSE_API_URL}/api/v1/evaluation`, {
       cache: "no-store",
     }),
   );

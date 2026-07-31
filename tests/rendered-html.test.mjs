@@ -34,6 +34,11 @@ test("server-renders the CarePulse workbench with an honest runtime mode", async
   assert.match(html, /CarePulse/);
   assert.match(html, /消费者问题理解/);
   assert.match(html, /证据包/);
+  assert.match(html, /JUDGE CHALLENGE/);
+  assert.match(html, /现场分析/);
+  assert.match(html, /VERIFYING MODEL/);
+  assert.match(html, /评测证据/);
+  assert.match(html, /EVAL BUILD/);
   assert.match(html, /正在连接 Harness/);
   assert.match(html, /正在验证运行时/);
   assert.doesNotMatch(html, /Harness 在线/);

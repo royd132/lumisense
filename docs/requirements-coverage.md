@@ -9,14 +9,14 @@
 - ✅ 黑客松 MVP 的必做业务链路已闭环：理解、风险、证据、建议、审查、人工批准、Outbox。
 - ✅ 线上站点使用同源 REST + SSE + D1 Edge Harness，支持身份、会话隔离、脱敏、幂等、Artifact、Trace、双层审批、Outbox 重试/死信和动态风险看板。
 - ✅ 仓库内提供 Python 3.11 + FastAPI + LangGraph + PostgreSQL/pgvector 的生产运行基线，包含持久化 Checkpoint、`interrupt()` / `Command(resume=...)`、Alembic、混合检索和独立 Worker。
-- ✅ 真实 CRM、OMS、模型 API 和通知渠道保持 Typed Adapter 边界；未配置外部凭据时使用确定性结构化 fallback / mock adapter，绝不伪装成外部动作已执行。
+- ✅ 真实 CRM、OMS、模型 API 和通知渠道保持 Typed Adapter 边界；Hosted Edge 已接入 Triage/Copilot/Review 三套严格 JSON Schema 模型调用，未配置外部凭据或调用失败时使用确定性结构化 fallback / mock adapter，绝不伪装成模型或外部动作已执行。
 - ✅ MVP 明确不引入开放式 ReAct、黑板 claim 调度、同质 Agent fork、MCP、Redis 主存储、LoRA/SFT/RL。
 
 ## 2. 两个运行 Profile
 
 | Profile | 用途 | 已实现能力 | 明确边界 |
 | --- | --- | --- | --- |
-| Hosted Edge | 当前线上可直接验收 | React 工作台、同源 API、SSE、D1、Artifact、Trace、身份与行级过滤、人工审批、Transactional Outbox、Worker drain、重试/死信、动态看板 | 三个 Agent 为可重复的结构化 fallback；外部 CRM/OMS/通知仅创建幂等受控任务 |
+| Hosted Edge | 当前线上可直接验收 | React 工作台、开放输入、同源 API、SSE、D1、Artifact、Trace、身份与行级过滤、人工审批、Transactional Outbox、Worker drain、重试/死信、动态看板、60 案例评测 | 三个 Agent 在配置密钥后调用同一模型的独立 JSON Schema；未配置或失败时明确显示 SAFE FALLBACK；外部 CRM/OMS/通知仅创建幂等受控任务 |
 | Python Production | Docker Compose 私有化/生产基线 | FastAPI、LangGraph StateGraph、PostgreSQL、pgvector、FTS、元数据过滤、Checkpoint、Alembic、JWT/RBAC、Outbox Worker、OTel/Prometheus | 需要部署方提供 PostgreSQL、JWT secret、真实模型与业务系统 adapter |
 
 当前线上页不会声称“LangGraph 正在云端执行”；页面将 D1 线上运行时与 LangGraph/PostgreSQL 生产 Profile 分开呈现。
@@ -32,6 +32,8 @@
 | 人工接受、编辑、拒绝、升级 | ✅ | 工作台审批区与审批 API |
 | 客服请求主管、主管最终升级 | ✅ 增强项 | `REQUEST_ESCALATION` → `PENDING_SUPERVISOR_APPROVAL` → `ESCALATE` |
 | 看板趋势、问题类型、待审批、升级队列、动作/死信 | ✅ | D1 动态聚合、刷新与 CSV 导出 |
+| 评委随机输入与非脚本化验证 | ✅ 增强项 | 工作台 `JUDGE CHALLENGE` 现场输入，复用同一 Run/SSE/审批链路 |
+| 比赛级评测证据 | ✅ 增强项 | `GET /api/v1/evaluation` 在线复算 60 条匿名化美妆客服 fixture 与固定模板基线 |
 
 ## 4. Agent 与确定性服务边界
 
@@ -114,6 +116,7 @@ Harness 已覆盖：
 | `POST /api/v1/runs` | ✅ | 严格输入类型、身份、脱敏、幂等 |
 | `GET /api/v1/runs/{id}` | ✅ | owner/主管范围过滤 |
 | `GET /api/v1/runs/{id}/events` | ✅ | SSE、`id`、`Last-Event-ID`、心跳、Abort |
+| `GET /api/v1/evaluation` | ✅ | 在线复算 60 条案例，返回指标、场景切片、方法与诚实边界 |
 | `POST /api/v1/cases/{id}/approval` | ✅ | 接受、编辑、拒绝、升级与主管复核 |
 | 未批准不产生副作用 | ✅ | Outbox 仅由审批事务创建 |
 | Transactional Outbox | ✅ | case + approval + outbox 原子提交 |
@@ -135,6 +138,7 @@ Harness 已覆盖：
 - API：身份、输入校验、owner 隔离、SSE、Trace、单次审批、双层升级和看板聚合；
 - Evidence：订单与产品一致、退款进度与破损政策不串线；
 - Security：手机号/邮箱/地址脱敏，原文与模型输入分离。
+- Competition Eval：60 条产品咨询、标准售后、重复投诉、不良反应、舆情与证据缺失案例；输出路由准确率、高风险召回、引用有效率、承诺拦截率和安全失败率。
 
 测试入口：
 
@@ -148,7 +152,7 @@ python -m ruff check backend/app backend/tests backend/alembic
 
 | 原需求 | 状态 | 实现 |
 | --- | --- | --- |
-| CarePulseRunTrace | ✅ | 节点、前后状态、模型别名、prompt、input hash、证据、风险、validator、延迟、fallback |
+| CarePulseRunTrace | ✅ | 节点、前后状态、真实模型别名、prompt、input hash、证据、风险、validator、延迟、Token、`fallback_used` |
 | structlog | ✅ Python Profile | 结构化生命周期、运行失败和 Outbox 日志 |
 | OpenTelemetry | ✅ Python Profile | `carepulse.graph.run` 手工 span，可接任意 exporter |
 | Prometheus | ✅ Python Profile | 运行数和端到端延迟 `/metrics` |

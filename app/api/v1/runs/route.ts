@@ -23,6 +23,8 @@ export async function POST(request: Request) {
       input.customer_id.length > 80 ||
       (input.order_id !== undefined &&
         (typeof input.order_id !== "string" || input.order_id.length > 80)) ||
+      (input.product_id !== undefined &&
+        (typeof input.product_id !== "string" || input.product_id.length > 80)) ||
       (input.contact_count !== undefined &&
         (!Number.isInteger(input.contact_count) ||
           input.contact_count < 1 ||

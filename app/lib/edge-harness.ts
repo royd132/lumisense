@@ -1,5 +1,6 @@
 import { env, waitUntil } from "cloudflare:workers";
 import type { ApiAnalysis, RunInput } from "./carepulse-api";
+import { applyLiveModel } from "./openai-runtime";
 
 type Severity = ApiAnalysis["risk"]["severity"];
 type D1Row = Record<string, unknown>;
@@ -11,7 +12,7 @@ type ApprovalDecision =
   | "ESCALATE"
   | "REQUEST_ESCALATION";
 
-const PROMPT_VERSION = "edge_harness_v3";
+const PROMPT_VERSION = "edge_harness_v4";
 const MODEL_ALIAS = "deterministic_structured_fallback";
 const SUPERVISOR_ROLES = new Set(["SUPERVISOR", "RISK_MANAGER", "ADMIN"]);
 const MAX_OUTBOX_ATTEMPTS = 5;
@@ -47,16 +48,22 @@ const PRODUCT_RECORDS: Record<
   string,
   { title: string; content: string; category: string }
 > = {
+  SERUM_HA30: {
+    title: "复颜玻尿酸精华 30ml / 已批准产品资料",
+    content:
+      "配方含透明质酸类保湿成分；产品定位为日常保湿，不属于治疗产品。敏感肌首次使用建议先做局部测试；皮肤屏障破损、持续泛红或处于治疗期时，应先咨询专业人士。",
+    category: "SKINCARE",
+  },
   FOUNDATION_P120: {
     title: "持妆粉底液 P120 产品与安全资料",
     content:
-      "彩妆产品出现明确刺激或红肿时应立即停止使用；在专业评估前不得推断原因。",
+      "彩妆产品出现明确刺激、刺痛或红肿时应立即停止使用；需记录使用部位、出现时间、症状与产品批次，在专业评估前不得推断原因。",
     category: "MAKEUP",
   },
   CREAM_B26C0719: {
     title: "玻色因紧致面霜 50ml / 批次 B26C0719",
     content:
-      "护肤产品出现明确红肿时应立即停止使用；在专业评估前不得推断原因。",
+      "该面霜为日常护肤产品，不用于治疗皮肤疾病。出现明确红肿、起疹或灼热时应立即停止使用；需记录使用部位、出现时间、症状与批次，在专业评估前不得推断原因。",
     category: "SKINCARE",
   },
 };
@@ -154,21 +161,47 @@ function routeFor(intent: string, severity: Severity) {
   return intent === "PRODUCT_INQUIRY" ? "FAQ" : "STANDARD_COMPLAINT";
 }
 
-function analyze(
+export function analyzeDeterministic(
   input: RunInput,
   runId: string,
   caseId: string,
   inputHash: string,
 ): ApiAnalysis {
   const text = input.text;
-  const safety = /红肿|过敏|刺痛|不良反应|灼热|起疹/.test(text);
-  const refund = /退款|退货|破损|到账/.test(text);
-  const damaged = /破损|碎裂|漏液/.test(text);
-  const publicThreat = /微博|小红书|社交平台|曝光|媒体|监管|律师/.test(text);
-  const repeat = (input.contact_count ?? 1) >= 3;
-  const overdue = input.previous_promise_overdue === true;
+  const safety =
+    /红肿|过敏|刺痛|不良反应|灼热|起疹|发痒|瘙痒|脱皮|肿胀|烫伤感/.test(
+      text,
+    );
+  const damaged =
+    /(?:商品|产品|包裹|包装|外包装|瓶身|快递|粉底液|面霜|精华).{0,8}破损|破损.{0,8}(?:商品|产品|包裹|包装|外包装|瓶身|快递|粉底液|面霜|精华|照片)|碎裂|漏液/.test(
+      text,
+    );
+  const refund = /退款|退货|到账|退钱|售后/.test(text) || damaged;
+  const publicThreat =
+    /微博|小红书|抖音|社交平台|曝光|媒体|监管|消协|投诉平台|律师/.test(
+      text,
+    );
+  const inferredRepeat =
+    /第[三四五六七八九十\d]+次|反复联系|联系了很多次|一直没人处理/.test(
+      text,
+    );
+  const inferredOverdue =
+    /承诺.*(?:超时|没处理|没结果|没消息)|说好.*(?:没处理|没结果|没消息)|超过.*小时/.test(
+      text,
+    );
+  const repeat = (input.contact_count ?? 1) >= 3 || inferredRepeat;
+  const overdue =
+    input.previous_promise_overdue === true || inferredOverdue;
   const order = input.order_id ? ORDER_RECORDS[input.order_id] : undefined;
-  const product = order ? PRODUCT_RECORDS[order.productId] : undefined;
+  const inferredProductId = /玻尿酸|精华/.test(text)
+    ? "SERUM_HA30"
+    : /粉底/.test(text)
+      ? "FOUNDATION_P120"
+      : /面霜/.test(text)
+        ? "CREAM_B26C0719"
+        : undefined;
+  const productId = order?.productId ?? input.product_id ?? inferredProductId;
+  const product = productId ? PRODUCT_RECORDS[productId] : undefined;
 
   const intent = safety
     ? "PRODUCT_SAFETY_COMPLAINT"
@@ -185,7 +218,13 @@ function analyze(
   const signals = [
     ...(safety ? ["消费者描述明确产品不良反应"] : []),
     ...(publicThreat ? ["消费者表达公开传播、法律或监管升级倾向"] : []),
-    ...(repeat ? [`同一问题已联系 ${input.contact_count} 次`] : []),
+    ...(repeat
+      ? [
+          input.contact_count
+            ? `同一问题已联系 ${input.contact_count} 次`
+            : "文本表明消费者已反复联系",
+        ]
+      : []),
     ...(overdue ? ["历史服务承诺已经超时"] : []),
   ];
   const severity: Severity = safety
@@ -212,7 +251,7 @@ function analyze(
   const productEvidence = product
     ? [
         {
-          evidence_id: `product:${order?.productId.toLowerCase()}`,
+          evidence_id: `product:${productId?.toLowerCase()}`,
           evidence_type: "PRODUCT",
           title: product.title,
           content: product.content,
@@ -227,7 +266,8 @@ function analyze(
           evidence_id: "policy:safety_sop_v6:clause_2_1",
           evidence_type: "SAFETY_SOP",
           title: "产品安全处置 SOP §2.1",
-          content: "出现明确红肿时，应建议暂停使用并进入安全事件流程。",
+          content:
+            "出现红肿、起疹、刺痛或灼热时，应建议暂停使用；记录使用部位、出现时间、症状、就医情况和产品批次，并进入安全事件收集流程。客服不得诊断或推断因果。",
         },
         {
           evidence_id: "policy:risk_escalation_v4:clause_1_3",
@@ -267,13 +307,17 @@ function analyze(
           },
         ]
       : [
-          {
-            evidence_id: "product:usage_v4:clause_2",
-            evidence_type: "PRODUCT",
-            title: "敏感肌首次使用建议",
-            content:
-              "首次使用前建议局部测试；持续不适时应停止使用并咨询专业人士。",
-          },
+          ...(productEvidence.length
+            ? productEvidence
+            : [
+                {
+                  evidence_id: "product:usage_v4:clause_2",
+                  evidence_type: "PRODUCT",
+                  title: "敏感肌首次使用建议",
+                  content:
+                    "首次使用前建议局部测试；持续不适时应停止使用并咨询专业人士。",
+                },
+              ]),
           {
             evidence_id: "policy:claim_safety_v3:clause_1_4",
             evidence_type: "CLAIM_POLICY",
@@ -332,6 +376,15 @@ function analyze(
     case_id: caseId,
     state: reviewApproved ? "PENDING_AGENT_APPROVAL" : "REVIEW_FAILED",
     route: routeFor(intent, severity),
+    runtime: {
+      harness: "EDGE_D1",
+      model_mode: "STRUCTURED_FALLBACK",
+      model: MODEL_ALIAS,
+      fallback_reason: null,
+      model_latency_ms: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+    },
     triage: {
       intent,
       issue_type: issueType,
@@ -347,7 +400,7 @@ function analyze(
           : "确认产品是否适合当前场景",
       entities: {
         order_id: input.order_id ?? null,
-        product_id: order?.productId ?? null,
+        product_id: productId ?? null,
       },
       required_evidence: requiredEvidence,
       confidence: safety ? 0.97 : refund ? 0.94 : 0.93,
@@ -385,7 +438,7 @@ function analyze(
       state_before: index === 0 ? "OPEN" : states[index - 1],
       state_after: states[index],
       model: MODEL_ALIAS,
-      model_version: "carepulse_edge_v3",
+      model_version: "carepulse_edge_v4",
       prompt_version:
         graph_node === "triage_and_risk"
           ? "triage_v2"
@@ -435,7 +488,11 @@ async function executeRun(
 ) {
   const db = database();
   try {
-    const result = analyze(input, runId, caseId, inputHash);
+    const result = await applyLiveModel(
+      analyzeDeterministic(input, runId, caseId, inputHash),
+      input,
+      inputHash,
+    );
     const createdAt = now();
     const artifacts = [
       ["triage", result.triage, "triage_v2"],
@@ -459,6 +516,8 @@ async function executeRun(
             state_after: trace.state_after,
             prompt_version: trace.prompt_version,
             evidence_ids: trace.evidence_ids,
+            model: trace.model,
+            fallback_used: trace.fallback_used,
           }),
           createdAt,
         )
@@ -504,9 +563,14 @@ async function executeRun(
         ),
       db
         .prepare(
-          "UPDATE agent_runs SET status = 'WAITING_APPROVAL', result_json = ?, updated_at = ? WHERE id = ?",
+          "UPDATE agent_runs SET status = 'WAITING_APPROVAL', result_json = ?, model_alias = ?, updated_at = ? WHERE id = ?",
         )
-        .bind(JSON.stringify(result), createdAt, runId),
+        .bind(
+          JSON.stringify(result),
+          result.runtime.model,
+          createdAt,
+          runId,
+        ),
       db
         .prepare(
           "INSERT INTO run_events (run_id, event_type, data_json, created_at) VALUES (?, 'interrupt', ?, ?)",

@@ -99,6 +99,33 @@ test("Edge worker streams trace events and checks D1 readiness", async () => {
   const result = await completedRun(accepted.run_id);
   assert.equal(result.review.approved, true);
   assert.equal(result.state, "PENDING_AGENT_APPROVAL");
+  assert.equal(result.runtime.model_mode, "STRUCTURED_FALLBACK");
+  assert.equal(result.runtime.fallback_reason, "api_key_not_configured");
+  assert.ok(result.trace.every((item) => item.fallback_used === true));
+});
+
+test("competition evaluation recomputes the 60-case report", async () => {
+  const response = await request("/api/v1/evaluation", {
+    headers: authHeaders(),
+  });
+  assert.equal(response.status, 200);
+  const report = await response.json();
+  assert.equal(report.methodology.cases, 60);
+  assert.equal(report.slices.length, 6);
+  assert.match(report.methodology.limitation, /工程回归/);
+  const riskRecall = report.metrics.find(
+    (item) => item.key === "high_risk_recall",
+  );
+  const citationValidity = report.metrics.find(
+    (item) => item.key === "citation_validity",
+  );
+  const safeFailure = report.metrics.find(
+    (item) => item.key === "safe_failure",
+  );
+  assert.equal(riskRecall.carepulse, 100);
+  assert.equal(citationValidity.carepulse, 100);
+  assert.equal(safeFailure.carepulse, 100);
+  assert.ok(report.slices.every((item) => item.passed === item.cases));
 });
 
 test("review failure cannot be approved and never recommends actions", async () => {
