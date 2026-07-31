@@ -12,7 +12,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const title = "CarePulse | 证据驱动客服 Copilot";
   const description =
     "以证据、风险信号和人工审批为核心的受控消费者共情客服 Copilot。";
-  const image = new URL("/og.png", metadataBase).toString();
+  const image = new URL("/og-competition.png", metadataBase).toString();
   return {
     metadataBase,
     title,
