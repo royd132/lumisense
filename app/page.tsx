@@ -2,24 +2,21 @@
 
 import {
   AlertOutlined,
-  ArrowUpOutlined,
+  ArrowRightOutlined,
   AuditOutlined,
   CheckCircleFilled,
   CheckOutlined,
-  ClockCircleOutlined,
-  CloseOutlined,
   DashboardOutlined,
   DatabaseOutlined,
-  EditOutlined,
   ExperimentOutlined,
-  HistoryOutlined,
+  EyeOutlined,
+  HeartOutlined,
+  LockOutlined,
   MessageOutlined,
-  MoreOutlined,
   ReloadOutlined,
-  RobotOutlined,
   SafetyCertificateOutlined,
   SendOutlined,
-  StarFilled,
+  TeamOutlined,
   ThunderboltFilled,
   UserOutlined,
   WarningFilled,
@@ -30,1944 +27,703 @@ import {
   Button,
   ConfigProvider,
   Progress,
-  Segmented,
+  Select,
   Tag,
   Tooltip,
 } from "antd";
 import type { EChartsOption } from "echarts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ApiDashboard,
-  ApiAnalysis,
-  CurrentPrincipal,
-  EvaluationReport,
   approveCase,
   CAREPULSE_API_ENABLED,
-  getCurrentPrincipal,
-  getDashboard,
   getEvaluationReport,
-  RunInput,
   startRun,
+  submitLumiSenseFeedback,
+  updateBrandPersona,
+  type EvaluationReport,
+  type RunInput,
 } from "./lib/carepulse-api";
+import {
+  coldStartStats,
+  insightFromRun,
+  permissionMatrix,
+  riskAlerts,
+  riskMetrics,
+  roleProfiles,
+  roleViews,
+  scenarioInputs,
+  scenarios,
+  teamRanking,
+  type LumiInsight,
+  type LumiRole,
+  type LumiScenarioKey,
+  type LumiView,
+} from "./lib/lumisense-demo";
 
-type Severity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-type DemoScenarioKey = "faq" | "refund" | "safety";
-type ScenarioKey = DemoScenarioKey | "challenge";
-type ViewKey = "workbench" | "dashboard" | "evaluation";
-
-type Evidence = {
-  kind: "政策" | "订单" | "历史" | "产品";
-  title: string;
-  detail: string;
-  ref: string;
-  tone: "blue" | "gold" | "violet" | "green";
-};
-
-type Scenario = {
-  short: string;
-  label: string;
-  badge: string;
-  customer: string;
-  meta: string;
-  intent: string;
-  issue: string;
-  explicit: string;
-  summary: string;
-  serviceGoal: string;
-  draft: string;
-  status: string;
-  severity: Severity;
-  confidence: number;
-  riskSignals: string[];
-  messages: { by: "consumer" | "agent"; text: string; time: string }[];
-  order?: {
-    id: string;
-    product: string;
-    amount: string;
-    state: string;
-    extra: string;
-  };
-  evidence: Evidence[];
-  actions: { id?: string; action: string; reason: string; gate: string }[];
-  review: {
-    approved: boolean;
-    label: string;
-    detail: string;
-  };
-  trace: { name: string; detail: string; ms: number; state: "done" | "warn" }[];
-  runtime: ApiAnalysis["runtime"];
-};
-
-const previewRuntime: ApiAnalysis["runtime"] = {
-  harness: "EDGE_D1",
-  model_mode: "STRUCTURED_FALLBACK",
-  model: "正在验证",
-  fallback_reason: "awaiting_runtime",
-  model_latency_ms: 0,
-  input_tokens: 0,
-  output_tokens: 0,
-};
-
-const demoScenarioKeys: DemoScenarioKey[] = ["faq", "refund", "safety"];
-
-const scenarios: Record<DemoScenarioKey, Scenario> = {
-  faq: {
-    short: "A",
-    label: "普通 FAQ",
-    badge: "短链路",
-    customer: "林女士",
-    meta: "普通会员 · Web 在线咨询",
-    intent: "PRODUCT_INQUIRY",
-    issue: "INGREDIENT_USAGE",
-    explicit: "确认敏感肌是否适用",
-    summary: "消费者想确认玻尿酸复颜精华是否适合敏感肌，以及首次使用时的注意事项。",
-    serviceGoal: "基于已批准的产品说明给出清晰用法，不对医学效果作出承诺。",
-    draft:
-      "林女士您好，这款复颜玻尿酸精华的产品说明中标注可用于日常补水。若您属于敏感肌，建议首次使用前先在耳后或手臂内侧做局部测试，确认无不适后再逐步使用。由于每个人的皮肤状态不同，如目前正处于泛红、破损或治疗期，建议先咨询专业医生。",
-    status: "PENDING_AGENT_APPROVAL",
-    severity: "LOW",
-    confidence: 0.96,
-    riskSignals: [],
-    messages: [
-      { by: "consumer", text: "你好，想问下你们这款玻尿酸精华敏感肌能用吗？", time: "10:24" },
-      { by: "agent", text: "您好，我来帮您核对一下产品说明。", time: "10:24" },
-      { by: "consumer", text: "我之前用一些精华会有点泛红，第一次怎么用比较好？", time: "10:25" },
-    ],
-    order: {
-      id: "未关联订单",
-      product: "复颜玻尿酸精华 30ml",
-      amount: "¥319",
-      state: "产品咨询",
-      extra: "护肤 · 精华",
-    },
-    evidence: [
-      {
-        kind: "产品",
-        title: "敏感肌首次使用建议",
-        detail: "首次使用前建议局部测试；出现持续不适时应停止使用并咨询专业人士。",
-        ref: "product:revitalift_ha:v4:usage_2",
-        tone: "green",
-      },
-      {
-        kind: "政策",
-        title: "功效沟通合规指引",
-        detail: "客服不得使用“治疗”“修复疾病”等医学效果表述。",
-        ref: "policy:claim_safety:v3:clause_1_4",
-        tone: "blue",
-      },
-    ],
-    actions: [
-      {
-        action: "发送产品使用指引",
-        reason: "问题可由当前已批准的产品说明完整回答",
-        gate: "人工确认",
-      },
-    ],
-    review: {
-      approved: true,
-      label: "审查通过",
-      detail: "事实均有依据，未包含医学承诺，已回应消费者的明确问题。",
-    },
-    trace: [
-      { name: "Triage Agent", detail: "识别产品咨询与敏感肌使用问题", ms: 186, state: "done" },
-      { name: "Risk Engine", detail: "未发现服务升级硬信号", ms: 9, state: "done" },
-      { name: "Evidence Service", detail: "召回 2 条已批准产品与政策证据", ms: 148, state: "done" },
-      { name: "Copilot Agent", detail: "生成带引用的建议回复", ms: 612, state: "done" },
-      { name: "Review Agent", detail: "合规与事实审查通过", ms: 274, state: "done" },
-    ],
-    runtime: previewRuntime,
-  },
-  refund: {
-    short: "B",
-    label: "重复退款投诉",
-    badge: "完整链路",
-    customer: "周女士",
-    meta: "金卡会员 · 第 3 次联系",
-    intent: "REFUND_COMPLAINT",
-    issue: "PRODUCT_DAMAGE",
-    explicit: "尽快完成退款",
-    summary: "消费者收到外包装破损的粉底液并第三次追问退款；上一位客服承诺 24 小时内反馈，目前已经超时。",
-    serviceGoal: "承认处理延迟，核对退款资格与历史承诺，避免再次要求消费者提供已有信息。",
-    draft:
-      "周女士您好，很抱歉让您为同一问题多次联系我们。我们已核对到订单已签收 2 天，您此前提交的破损照片也已记录，无需再次提供。上一轮承诺的 24 小时反馈已超时，我会为您优先提交退款资格复核，并由专员跟进处理进度。退款仍需完成系统核验，我们暂不对到账时间作不确定承诺。",
-    status: "PENDING_AGENT_APPROVAL",
-    severity: "HIGH",
-    confidence: 0.94,
-    riskSignals: ["同一问题已联系 3 次", "上一轮退款反馈承诺已超时", "消费者明确要求尽快完成退款"],
-    messages: [
-      { by: "consumer", text: "这已经是我第三次来问了，破损照片前天就发过。", time: "14:08" },
-      { by: "agent", text: "抱歉让您久等，我正在查看前序记录。", time: "14:09" },
-      { by: "consumer", text: "昨天说 24 小时内处理退款，现在还是没有任何消息。", time: "14:10" },
-      { by: "consumer", text: "请不要再让我重复提交材料了。", time: "14:10" },
-    ],
-    order: {
-      id: "ORDER_1024",
-      product: "持妆粉底液 P120",
-      amount: "¥389",
-      state: "已签收 · 2 天",
-      extra: "退款状态：待申请",
-    },
-    evidence: [
-      {
-        kind: "订单",
-        title: "ORDER_1024",
-        detail: "2026-07-28 11:30 签收；实付 ¥389；退款状态 NOT_REQUESTED。",
-        ref: "order:ORDER_1024",
-        tone: "blue",
-      },
-      {
-        kind: "政策",
-        title: "破损商品售后政策 §3.2",
-        detail: "签收 7 日内且已有有效破损凭证，可发起退款资格核验。",
-        ref: "policy:refund_v5:clause_3_2",
-        tone: "gold",
-      },
-      {
-        kind: "历史",
-        title: "历史承诺 #PROMISE_221",
-        detail: "客服于昨日 13:46 承诺 24 小时内反馈，当前已超时 24 分钟。",
-        ref: "promise:PROMISE_221",
-        tone: "violet",
-      },
-    ],
-    actions: [
-      {
-        action: "优先核验退款资格",
-        reason: "已具备订单与破损凭证，且历史服务承诺已超时",
-        gate: "人工批准后进入 Outbox",
-      },
-      {
-        action: "创建主管回访任务",
-        reason: "重复联系达到 3 次，需避免消费者继续流转",
-        gate: "主管审批",
-      },
-    ],
-    review: {
-      approved: true,
-      label: "审查通过",
-      detail: "未擅自承诺退款结果或到账时间；订单、凭证与承诺均有证据引用。",
-    },
-    trace: [
-      { name: "Triage Agent", detail: "识别退款投诉、破损商品与明确诉求", ms: 204, state: "done" },
-      { name: "Risk Engine", detail: "命中重复联系与承诺超时规则", ms: 11, state: "warn" },
-      { name: "Evidence Service", detail: "并行获取订单、历史承诺与退款政策", ms: 173, state: "done" },
-      { name: "Copilot Agent", detail: "生成建议回复与 2 项处置动作", ms: 684, state: "done" },
-      { name: "Validators", detail: "金额、时间、引用、权限校验通过", ms: 18, state: "done" },
-      { name: "Review Agent", detail: "事实与政策审查通过", ms: 291, state: "done" },
-    ],
-    runtime: previewRuntime,
-  },
-  safety: {
-    short: "C",
-    label: "不良反应与舆情",
-    badge: "高风险链路",
-    customer: "陈女士",
-    meta: "银卡会员 · App 客服",
-    intent: "PRODUCT_SAFETY_COMPLAINT",
-    issue: "ADVERSE_REACTION",
-    explicit: "解释原因并立即处理",
-    summary: "消费者称使用面霜后出现面部红肿，并表示若得不到处理将发布至社交平台。",
-    serviceGoal: "优先保障消费者安全，停止普通补偿话术，立即转入人工高风险处置流程。",
-    draft:
-      "陈女士您好，很抱歉得知您出现了面部红肿。请先暂停使用该产品；如症状明显、持续或加重，请及时寻求专业医疗帮助。为了由专人尽快跟进，我会在您确认后立即将情况升级至产品安全团队。我们将核对产品批次与使用情况，但在完成专业评估前不会对原因作推断。",
-    status: "PENDING_AGENT_APPROVAL",
-    severity: "CRITICAL",
-    confidence: 0.98,
-    riskSignals: ["明确描述面部红肿", "消费者表示将发布至社交平台", "要求立即处理"],
-    messages: [
-      { by: "consumer", text: "昨晚用了你们的面霜，今天脸上红肿得很明显。", time: "16:41" },
-      { by: "agent", text: "非常抱歉给您带来这样的体验，我马上协助核实。", time: "16:42" },
-      { by: "consumer", text: "如果今天还不给我处理，我会把照片发到社交平台。", time: "16:43" },
-      { by: "consumer", text: "你们必须马上给我一个解释。", time: "16:43" },
-    ],
-    order: {
-      id: "ORDER_2088",
-      product: "玻色因紧致面霜 50ml",
-      amount: "¥499",
-      state: "已签收 · 5 天",
-      extra: "批次：B26C0719",
-    },
-    evidence: [
-      {
-        kind: "产品",
-        title: "产品安全处置 SOP §2.1",
-        detail: "出现明确红肿等不良反应描述时，应建议暂停使用并进入安全事件收集流程。",
-        ref: "policy:safety_sop_v6:clause_2_1",
-        tone: "green",
-      },
-      {
-        kind: "政策",
-        title: "高风险服务升级规则 §1.3",
-        detail: "不良反应与公开传播意图同时出现时，风险取最高等级并强制人工升级。",
-        ref: "policy:risk_escalation_v4:clause_1_3",
-        tone: "gold",
-      },
-      {
-        kind: "订单",
-        title: "ORDER_2088 / 批次 B26C0719",
-        detail: "产品由品牌旗舰店发出，需由产品安全团队进一步核对批次记录。",
-        ref: "order:ORDER_2088",
-        tone: "blue",
-      },
-    ],
-    actions: [
-      {
-        action: "升级产品安全事件",
-        reason: "命中明确不良反应硬规则",
-        gate: "人工批准后创建风险工单",
-      },
-      {
-        action: "通知值班主管",
-        reason: "存在公开平台传播倾向",
-        gate: "Outbox 幂等执行",
-      },
-    ],
-    review: {
-      approved: true,
-      label: "高风险审查通过",
-      detail: "已避免原因归因与赔偿承诺；安全建议、升级路径和不确定性表达完整。",
-    },
-    trace: [
-      { name: "Triage Agent", detail: "识别产品安全投诉与立即处理诉求", ms: 217, state: "done" },
-      { name: "Risk Engine", detail: "命中不良反应与舆情威胁两项硬规则", ms: 8, state: "warn" },
-      { name: "Deterministic Router", detail: "强制进入高风险路径", ms: 3, state: "warn" },
-      { name: "Evidence Service", detail: "强制加载安全 SOP、升级规则与批次信息", ms: 189, state: "done" },
-      { name: "Copilot Agent", detail: "生成安全优先的建议回复", ms: 731, state: "done" },
-      { name: "Review Agent", detail: "高风险独立审查通过", ms: 326, state: "done" },
-    ],
-    runtime: previewRuntime,
-  },
-};
-
-const processingSteps = [
-  "正在理解消费者诉求",
-  "正在检查风险信号",
-  "正在并行获取业务证据",
-  "正在生成建议回复",
-  "正在执行独立审查",
+const scenarioOrder: Exclude<LumiScenarioKey, "challenge">[] = [
+  "allergy",
+  "pregnancy",
+  "acne",
+  "gift",
+  "expectation",
 ];
 
-const runInputs: Record<DemoScenarioKey, RunInput> = {
-  faq: {
-    conversation_id: "conv_faq_001",
-    customer_id: "customer_lin",
-    text: "你好，想问玻尿酸精华敏感肌能用吗？第一次怎么用比较好？",
-  },
-  refund: {
-    conversation_id: "conv_refund_1024",
-    customer_id: "customer_zhou",
-    text: "这已经是第三次联系，破损照片发过了，退款承诺还是没有处理。",
-    order_id: "ORDER_1024",
-    contact_count: 3,
-    previous_promise_overdue: true,
-  },
-  safety: {
-    conversation_id: "conv_safety_2088",
-    customer_id: "customer_chen",
-    text: "用了面霜后脸上红肿，今天不处理我就发到小红书曝光。",
-    order_id: "ORDER_2088",
-  },
+const viewLabels: Record<LumiView, { label: string; icon: React.ReactNode }> = {
+  workspace: { label: "智能接待", icon: <MessageOutlined /> },
+  risk: { label: "风险预警", icon: <DashboardOutlined /> },
+  growth: { label: "共情成长", icon: <HeartOutlined /> },
+  evolution: { label: "进化中心", icon: <ExperimentOutlined /> },
 };
 
-function challengeScenario(input: RunInput): Scenario {
-  const order =
-    input.order_id === "ORDER_1024"
-      ? {
-          id: "ORDER_1024",
-          product: "持妆粉底液 P120",
-          amount: "¥389",
-          state: "待在线核验",
-          extra: "开放输入关联订单",
-        }
-      : input.order_id === "ORDER_2088"
-        ? {
-            id: "ORDER_2088",
-            product: "玻色因紧致面霜 50ml",
-            amount: "¥499",
-            state: "待在线核验",
-            extra: "批次：B26C0719",
-          }
-        : undefined;
-  return {
-    short: "✦",
-    label: "评委开放输入",
-    badge: "现场运行",
-    customer: "现场消费者",
-    meta: "随机挑战 · 服务原文仅在当前授权范围展示",
-    intent: "ANALYZING",
-    issue: "ANALYZING",
-    explicit: "等待结构化理解",
-    summary: "Harness 正在对现场输入执行脱敏、风险识别、证据检索与独立审查。",
-    serviceGoal: "生成可回溯、不可自动发送的人工客服建议。",
-    draft: "正在生成基于证据的建议回复……",
-    status: "PROCESSING",
-    severity: "MEDIUM",
-    confidence: 0,
-    riskSignals: [],
-    messages: [
-      {
-        by: "consumer",
-        text: input.text,
-        time: new Date().toLocaleTimeString("zh-CN", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      },
-    ],
-    order,
-    evidence: [],
-    actions: [],
-    review: {
-      approved: false,
-      label: "等待独立审查",
-      detail: "建议回复在 Review Agent 和确定性校验通过前不可审批。",
-    },
-    trace: [],
-    runtime: previewRuntime,
-  };
-}
-
-function scenarioFromApi(base: Scenario, result: ApiAnalysis): Scenario {
-  const evidenceTone = (type: string): Evidence["tone"] =>
-    type === "ORDER" ? "blue" : type.includes("POLICY") || type.includes("SOP") ? "gold" : type === "PRODUCT" ? "green" : "violet";
-  const evidenceKind = (type: string): Evidence["kind"] =>
-    type === "ORDER" ? "订单" : type === "PRODUCT" ? "产品" : type.includes("HISTORY") || type === "PROMISE" ? "历史" : "政策";
-
-  return {
-    ...base,
-    runtime: result.runtime,
-    intent: result.triage.intent,
-    issue: result.triage.issue_type,
-    explicit: result.triage.explicit_request,
-    summary: result.copilot.consumer_summary,
-    serviceGoal: result.copilot.service_goal,
-    draft: result.copilot.draft_reply,
-    status: result.state,
-    severity: result.risk.severity === "REVIEW_REQUIRED" ? "HIGH" : result.risk.severity,
-    confidence: Math.min(result.triage.confidence, result.risk.confidence),
-    riskSignals: result.risk.signals,
-    evidence: result.evidence.items.map((item) => ({
-      kind: evidenceKind(item.evidence_type),
-      title: item.title,
-      detail: item.content,
-      ref: item.evidence_id,
-      tone: evidenceTone(item.evidence_type),
-    })),
-    actions: result.copilot.recommended_actions.map((item) => ({
-      id: item.action,
-      action: item.action,
-      reason: item.reason,
-      gate: "人工批准后进入 Outbox",
-    })),
-    review: {
-      approved: result.review.approved,
-      label: result.review.approved ? "独立审查通过" : "需要人工复核",
-      detail: result.review.approved
-        ? "必需证据、引用、风险措辞与动作权限均已独立复核。"
-        : result.review.violations.map((item) => item.message).join("；"),
-    },
-    trace: result.trace.map((item) => ({
-      name: item.graph_node,
-      detail: `状态推进至 ${item.state_after}`,
-      ms: item.latency_ms,
-      state: item.state_after === "REVIEW_FAILED" ? "warn" : "done",
-    })),
-  };
-}
-
-const severityMeta: Record<
-  Severity,
-  { label: string; className: string; color: string; hint: string }
-> = {
-  LOW: { label: "低风险", className: "risk-low", color: "#13a671", hint: "常规人工确认" },
-  MEDIUM: { label: "中风险", className: "risk-medium", color: "#d99a18", hint: "建议重点复核" },
-  HIGH: { label: "高风险", className: "risk-high", color: "#ef6a4c", hint: "需要主管关注" },
-  CRITICAL: { label: "严重风险", className: "risk-critical", color: "#d9364f", hint: "强制人工升级" },
+const scenarioMeta: Record<Exclude<LumiScenarioKey, "challenge">, { index: string; label: string; accent: string }> = {
+  allergy: { index: "01", label: "过敏急救", accent: "red" },
+  pregnancy: { index: "02", label: "孕期安全", accent: "amber" },
+  acne: { index: "03", label: "爆痘投诉", accent: "red" },
+  gift: { index: "04", label: "送礼推荐", accent: "green" },
+  expectation: { index: "05", label: "效果落差", accent: "amber" },
 };
 
-function EChart({ option, className = "" }: { option: EChartsOption; className?: string }) {
+function EChart({ option, className = "", label }: { option: EChartsOption; className?: string; label: string }) {
   const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let chart: import("echarts").ECharts | undefined;
     let disposed = false;
-
+    const resize = () => chart?.resize();
     void import("echarts").then((echarts) => {
       if (disposed || !chartRef.current) return;
       chart = echarts.init(chartRef.current);
       chart.setOption(option);
-      const resize = () => chart?.resize();
       window.addEventListener("resize", resize);
-      chart.on("finished", resize);
     });
-
     return () => {
       disposed = true;
+      window.removeEventListener("resize", resize);
       chart?.dispose();
     };
   }, [option]);
 
-  return <div ref={chartRef} className={`echart ${className}`} role="img" aria-label="数据趋势图" />;
+  return <div ref={chartRef} className={`echart ${className}`} role="img" aria-label={label} />;
 }
 
-function ProductMark() {
+function LumiMark() {
   return (
-    <div className="product-mark" aria-hidden="true">
-      <span className="pulse-ring ring-one" />
-      <span className="pulse-ring ring-two" />
-      <span className="pulse-core">
-        <ThunderboltFilled />
-      </span>
+    <span className="lumi-mark" aria-hidden="true">
+      <i />
+      <b />
+      <em />
+    </span>
+  );
+}
+
+function SectionHead({ eyebrow, title, extra }: { eyebrow: string; title: string; extra?: React.ReactNode }) {
+  return (
+    <div className="section-head">
+      <div>
+        <span className="eyebrow">{eyebrow}</span>
+        <h2>{title}</h2>
+      </div>
+      {extra}
     </div>
   );
 }
 
-function Workbench({
-  scenarioKey,
-  onScenario,
-  principal,
-  customInput,
-  onCustomRun,
+function RoleGate({ role, allow, children }: { role: LumiRole; allow: LumiRole[]; children: React.ReactNode }) {
+  if (allow.includes(role)) return <>{children}</>;
+  return (
+    <div className="role-gate">
+      <span className="gate-icon"><LockOutlined /></span>
+      <div>
+        <b>当前角色不可执行</b>
+        <p>{roleProfiles[role].label}仅保留 PRD 权限矩阵允许的能力。</p>
+      </div>
+    </div>
+  );
+}
+
+function RuntimeProof({ insight, running, activeNode }: { insight: LumiInsight; running: boolean; activeNode: string }) {
+  const live = insight.runtime.model_mode === "LIVE_MODEL";
+  return (
+    <div className="runtime-proof">
+      <span className={`runtime-dot ${running ? "is-running" : live ? "is-live" : "is-fallback"}`} />
+      <div>
+        <b>{running ? "AGENTLOOP RUNNING" : live ? "LIVE MODEL" : "SAFE FALLBACK"}</b>
+        <small>{running ? activeNode || "正在规划子 Agent" : `${insight.runtime.harness} · ${insight.runtime.model}`}</small>
+      </div>
+    </div>
+  );
+}
+
+function ConversationRail({ active, onSelect }: { active: LumiScenarioKey; onSelect: (key: Exclude<LumiScenarioKey, "challenge">) => void }) {
+  return (
+    <aside className="conversation-rail">
+      <div className="rail-heading">
+        <div>
+          <span className="eyebrow">LIVE QUEUE</span>
+          <h2>当前会话</h2>
+        </div>
+        <Badge count={20} overflowCount={99} color="#534ab7" />
+      </div>
+      <label className="search-field">
+        <span>⌕</span>
+        <input aria-label="搜索会话" placeholder="搜索消费者 / 场景" />
+      </label>
+      <div className="queue-groups">
+        <span>演示必跑 · 5 个场景</span>
+        {scenarioOrder.map((key) => {
+          const item = scenarios[key];
+          const meta = scenarioMeta[key];
+          return (
+            <button key={key} className={`conversation-item ${active === key ? "active" : ""}`} onClick={() => onSelect(key)}>
+              <span className={`scenario-index ${meta.accent}`}>{meta.index}</span>
+              <span className="conversation-copy">
+                <b>{item.consumer.name}<small>{meta.label}</small></b>
+                <em>{item.messages.at(-1)?.text}</em>
+              </span>
+              <span className={`risk-pin ${item.perception.risk}`} />
+            </button>
+          );
+        })}
+      </div>
+      <div className="knowledge-mini">
+        <DatabaseOutlined />
+        <div><b>美妆知识图谱</b><span>12 场景 · 50+ 成分 · 7 品牌</span></div>
+        <CheckCircleFilled />
+      </div>
+    </aside>
+  );
+}
+
+function ChatStage({
+  insight,
+  draft,
+  onDraft,
+  onSend,
+  role,
 }: {
-  scenarioKey: ScenarioKey;
-  onScenario: (key: ScenarioKey) => void;
-  principal: CurrentPrincipal | null;
-  customInput: RunInput | null;
-  onCustomRun: (input: RunInput) => void;
+  insight: LumiInsight;
+  draft: string;
+  onDraft: (value: string) => void;
+  onSend: () => void;
+  role: LumiRole;
 }) {
-  const baseScenario = useMemo(
-    () =>
-      scenarioKey === "challenge" && customInput
-        ? challengeScenario(customInput)
-        : scenarios[scenarioKey as DemoScenarioKey],
-    [customInput, scenarioKey],
-  );
-  const runInput =
-    scenarioKey === "challenge"
-      ? customInput
-      : runInputs[scenarioKey as DemoScenarioKey];
-  const [scenario, setScenario] = useState(baseScenario);
-  const [draft, setDraft] = useState(baseScenario.draft);
-  const [processingIndex, setProcessingIndex] = useState(
-    CAREPULSE_API_ENABLED ? 0 : -1,
-  );
-  const [notice, setNotice] = useState("");
-  const [runtimeMode, setRuntimeMode] = useState<
-    "connecting" | "online" | "demo" | "error"
-  >(
-    CAREPULSE_API_ENABLED ? "connecting" : "demo",
-  );
-  const [liveCaseId, setLiveCaseId] = useState<string | null>(null);
-  const [selectedActionIds, setSelectedActionIds] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [finalized, setFinalized] = useState(false);
-  const [challengeText, setChallengeText] = useState(customInput?.text ?? "");
-  const [challengeOrder, setChallengeOrder] = useState(
-    customInput?.order_id ?? "",
-  );
-  const [challengeRepeat, setChallengeRepeat] = useState(
-    (customInput?.contact_count ?? 1) >= 3,
-  );
-  const [challengeOverdue, setChallengeOverdue] = useState(
-    customInput?.previous_promise_overdue ?? false,
-  );
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const canSend = role !== "viewer";
+  return (
+    <section className="chat-stage">
+      <header className="consumer-header">
+        <div className="consumer-identity">
+          <Avatar size={44} className="consumer-avatar">{insight.consumer.name.slice(0, 1)}</Avatar>
+          <div>
+            <h1>{insight.consumer.name} <Tag>{insight.consumer.vip}</Tag></h1>
+            <p>{insight.consumer.skinType} · {insight.consumer.personality} · {insight.consumer.history}</p>
+          </div>
+        </div>
+        <div className="consumer-actions">
+          <Tag color={insight.perception.risk === "red" ? "red" : insight.perception.risk === "yellow" ? "gold" : "green"}>{insight.perception.riskLabel}</Tag>
+          <Tooltip title={role === "agent_junior" ? "新手客服无转接权限" : "转接给资深客服"}>
+            <Button disabled={role === "agent_junior" || role === "viewer"}>转接</Button>
+          </Tooltip>
+          <Button icon={<AuditOutlined />} disabled={!['agent_senior', 'supervisor', 'admin'].includes(role)}>接管</Button>
+        </div>
+      </header>
 
-  useEffect(() => {
-    if (!CAREPULSE_API_ENABLED || !runInput) return;
-    let active = true;
-    void startRun(runInput, (node) => {
-      if (!active) return;
-      const order = ["ingest", "triage_and_risk", "evidence", "draft", "review"];
-      setProcessingIndex(Math.max(0, order.indexOf(node)));
-    })
-      .then((result) => {
-        if (!active) return;
-        const hydrated = scenarioFromApi(baseScenario, result);
-        setScenario(hydrated);
-        setDraft(hydrated.draft);
-        setLiveCaseId(result.case_id);
-        setSelectedActionIds([]);
-        setFinalized(
-          ["APPROVED", "ESCALATED", "PENDING_SUPERVISOR_APPROVAL"].includes(
-            result.state,
-          ) ||
-            (result.state === "REVIEW_FAILED" && result.review.approved),
-        );
-        setRuntimeMode("online");
-        setProcessingIndex(-1);
-      })
-      .catch(() => {
-        if (!active) return;
-        setRuntimeMode("error");
-        setProcessingIndex(-1);
-        setNotice("后端 Harness 暂不可用，当前保留演示数据且不会执行任何副作用。");
-      });
-    return () => {
-      active = false;
+      <div className="profile-strip">
+        <span><b>当前关注</b>{insight.consumer.concern}</span>
+        <span><b>敏感成分</b>{insight.consumer.allergies.length ? insight.consumer.allergies.join(" / ") : "未记录"}</span>
+        <span><b>品牌域</b>{insight.brand}</span>
+      </div>
+
+      <div className="message-scroll">
+        <div className="conversation-date">今天 · LumiSense 已读取最近 3 轮上下文</div>
+        {insight.messages.map((message, index) => (
+          <div key={`${message.time}-${index}`} className={`message-row ${message.by}`}>
+            {message.by === "consumer" && <Avatar size={30}>{insight.consumer.name.slice(0, 1)}</Avatar>}
+            <div>
+              <span className="message-meta">{message.by === "consumer" ? insight.consumer.name : "客服"} · {message.time}</span>
+              <div className="message-bubble">{message.text}</div>
+              {message.imageLabel && (
+                <div className="image-evidence"><EyeOutlined /><span>{message.imageLabel}<small>图片仅作 Demo 标签，不执行医学图像诊断</small></span></div>
+              )}
+            </div>
+          </div>
+        ))}
+        <div className="ai-divider"><span><LumiMark /> LumiSense 正在辅助，不会自动发送或承诺</span></div>
+      </div>
+
+      <div className="composer-shell">
+        <div className="composer-toolbar">
+          <span>AI 草稿 · 人工编辑区</span>
+          <span className="score-chip"><HeartOutlined /> 预计共情分 {insight.empathy.total}</span>
+        </div>
+        <textarea value={draft} onChange={(event) => onDraft(event.target.value)} aria-label="客服回复草稿" />
+        <div className="composer-footer">
+          <span>所有外部动作需人工确认 · 已启用禁用词检测</span>
+          <Button type="primary" icon={<SendOutlined />} disabled={!canSend || !draft.trim()} onClick={onSend}>人工发送</Button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PerceptionCard({ insight }: { insight: LumiInsight }) {
+  return (
+    <article className="sense-card insight-card">
+      <SectionHead eyebrow="SENSE · 实时感知" title="三轴信号已对齐" extra={<Tag className={`risk-tag ${insight.perception.risk}`}>{insight.perception.riskLabel}</Tag>} />
+      <div className="sense-grid">
+        <div><span>意图</span><b>{insight.perception.intent}</b></div>
+        <div><span>情绪</span><b>{insight.perception.emotion}</b><Progress percent={Math.round(insight.perception.intensity * 100)} showInfo={false} size="small" strokeColor="#a32d2d" /></div>
+        <div><span>皮肤轴</span><b>{insight.perception.skin}</b></div>
+        <div><span>产品轴</span><b>{insight.perception.product}</b></div>
+      </div>
+      {insight.riskSignals.length > 0 && <div className="signal-row">{insight.riskSignals.map((signal) => <Tag key={signal} color="red">{signal}</Tag>)}</div>}
+    </article>
+  );
+}
+
+function SubtextCard({ insight, onFeedback }: { insight: LumiInsight; onFeedback: (verdict: "accurate" | "inaccurate") => void }) {
+  return (
+    <article className="xray-card insight-card wow-card">
+      <div className="wow-ribbon">WOW 01</div>
+      <SectionHead eyebrow="SUBTEXT TRANSLATOR" title="潜台词 X 光片" extra={<span className="confidence">置信度 {Math.round(insight.subtext.confidence * 100)}%</span>} />
+      <div className="xray-stack">
+        <div><span>表面语义</span><p>{insight.subtext.surface}</p></div>
+        <div><span>真实情绪</span><p>{insight.subtext.emotion}</p></div>
+        <div className="xray-focus"><span>没说出口</span><p>“{insight.subtext.hidden}”</p></div>
+        <div><span>应对方向</span><p>{insight.subtext.strategy}</p></div>
+      </div>
+      <div className="feedback-row">
+        <span>这次翻译准确吗？</span>
+        <Button size="small" icon={<CheckOutlined />} onClick={() => onFeedback("accurate")}>准确</Button>
+        <Button size="small" onClick={() => onFeedback("inaccurate")}>需修正</Button>
+      </div>
+    </article>
+  );
+}
+
+function ProphetCard({ insight, onApply, onFeedback }: { insight: LumiInsight; onApply: () => void; onFeedback: (verdict: "accurate" | "partially") => void }) {
+  const option = useMemo<EChartsOption>(() => {
+    const rounds = ["R1", "R2", "R3", "NOW", "R5", "R6", "R7"];
+    const observed = [...insight.observed, null, null, null];
+    const future = (scores: number[]) => [null, null, null, insight.observed.at(-1), ...scores];
+    return {
+      animationDuration: 500,
+      grid: { left: 31, right: 14, top: 24, bottom: 25 },
+      tooltip: { trigger: "axis" },
+      xAxis: { type: "category", data: rounds, boundaryGap: false, axisLine: { lineStyle: { color: "#d9d6ea" } }, axisLabel: { color: "#77738a", fontSize: 10 } },
+      yAxis: { type: "value", min: 0, max: 100, splitNumber: 4, axisLabel: { color: "#918ca3", fontSize: 9 }, splitLine: { lineStyle: { color: "#efedf7" } } },
+      series: [
+        { name: "已观测", type: "line", data: observed, symbolSize: 7, lineStyle: { width: 3, color: "#534ab7" }, itemStyle: { color: "#534ab7" } },
+        { name: "继续当前", type: "line", data: future(insight.paths[0].scores), connectNulls: true, symbol: "none", lineStyle: { type: "dashed", width: 2, color: "#a32d2d" } },
+        { name: "标准安抚", type: "line", data: future(insight.paths[1].scores), connectNulls: true, symbol: "none", lineStyle: { type: "dashed", width: 2, color: "#ba7517" } },
+        { name: "深度共情", type: "line", data: future(insight.paths[2].scores), connectNulls: true, symbolSize: 6, lineStyle: { width: 3, color: "#0f6e56" }, itemStyle: { color: "#0f6e56" } },
+      ],
     };
-  }, [baseScenario, runInput]);
+  }, [insight]);
 
-  const switchScenario = (key: DemoScenarioKey) => {
-    if (key === scenarioKey) return;
-    if (CAREPULSE_API_ENABLED) {
-      onScenario(key);
-      return;
-    }
-    setProcessingIndex(0);
-    let index = 0;
-    const timer = window.setInterval(() => {
-      index += 1;
-      if (index >= processingSteps.length) {
-        window.clearInterval(timer);
-        setProcessingIndex(-1);
-        onScenario(key);
-      } else {
-        setProcessingIndex(index);
-      }
-    }, 260);
+  return (
+    <article className="prophet-card insight-card wow-card">
+      <div className="wow-ribbon">WOW 02</div>
+      <SectionHead eyebrow="EMOTION PROPHET" title="未来 3 轮情绪预言" extra={<Tag color="red">NOW {insight.observed.at(-1)} / 100</Tag>} />
+      <EChart option={option} className="prophet-chart" label="三条情绪预测路径" />
+      <div className="path-list">
+        {insight.paths.map((path) => (
+          <div key={path.key} className={`path-row ${path.tone}`}>
+            <span>Path {path.key.toUpperCase()}</span>
+            <b>{path.label}</b>
+            <em>R7 {path.scores.at(-1)} · 挽回 {path.probability}%</em>
+            {path.key === "c" && <Tag color="green">推荐</Tag>}
+          </div>
+        ))}
+      </div>
+      <p className="prophet-reason"><ThunderboltFilled /> {insight.recommendationReason}</p>
+      <div className="card-actions">
+        <Button type="primary" onClick={onApply}>应用 Path C 话术</Button>
+        <Button onClick={() => onFeedback("partially")}>反馈准确度</Button>
+      </div>
+    </article>
+  );
+}
+
+function ScriptsCard({ insight, onUse }: { insight: LumiInsight; onUse: (text: string) => void }) {
+  return (
+    <article className="scripts-card insight-card">
+      <SectionHead eyebrow="RESPOND · 共情话术" title="两条可编辑建议" extra={<span className="temperature">语言温度 +19</span>} />
+      <div className="script-list">
+        {insight.scripts.map((script, index) => (
+          <button key={script.label} onClick={() => onUse(script.text)} className={index === 0 ? "recommended" : ""}>
+            <span>{script.label}<em>预计 {script.score} 分</em></span>
+            <p>{script.text}</p>
+            <b>填入回复框 <ArrowRightOutlined /></b>
+          </button>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function ProductMatchCard({ insight }: { insight: LumiInsight }) {
+  return (
+    <article className={`product-card insight-card ${insight.product.gated ? "is-gated" : ""}`}>
+      <SectionHead eyebrow="RESOLVE · 三轴匹配" title={insight.product.name} extra={<Tag color={insight.product.gated ? "gold" : "green"}>{insight.product.price}</Tag>} />
+      <div className="product-brand">{insight.product.brand}</div>
+      <p>{insight.product.reason}</p>
+      <div className="ingredient-row">{insight.product.ingredients.map((item) => <span key={item}>{item}</span>)}</div>
+      <dl>
+        <div><dt>备选</dt><dd>{insight.product.alternatives.join(" · ")}</dd></div>
+        <div><dt>使用建议</dt><dd>{insight.product.guide}</dd></div>
+        <div className="taboo"><dt>禁忌</dt><dd>{insight.product.taboo}</dd></div>
+      </dl>
+      <div className="card-actions">
+        <Button type="primary" disabled={insight.product.gated}>{insight.product.gated ? "等待安全复核" : "生成推荐卡"}</Button>
+        <Button>查看证据</Button>
+      </div>
+    </article>
+  );
+}
+
+function EmpathyCard({ insight }: { insight: LumiInsight }) {
+  const option = useMemo<EChartsOption>(() => ({
+    radar: { indicator: [
+      { name: "情绪识别", max: 100 },
+      { name: "痛点回应", max: 100 },
+      { name: "方案有效", max: 100 },
+      { name: "语言温度", max: 100 },
+      { name: "品牌契合", max: 100 },
+    ], radius: "62%", splitNumber: 4, axisName: { color: "#5b576d", fontSize: 10 }, splitArea: { areaStyle: { color: ["#faf9fd", "#f4f1fb"] } }, axisLine: { lineStyle: { color: "#ddd8ed" } }, splitLine: { lineStyle: { color: "#ddd8ed" } } },
+    series: [{ type: "radar", data: [{ value: insight.empathy.dims, areaStyle: { color: "rgba(83,74,183,.22)" }, lineStyle: { color: "#534ab7", width: 2 }, itemStyle: { color: "#534ab7" } }] }],
+  }), [insight]);
+  return (
+    <article className="empathy-card insight-card">
+      <SectionHead eyebrow="MEASURE · 共情指数" title="5 维可解释评分" extra={<span className="empathy-total">{insight.empathy.total}</span>} />
+      <EChart option={option} className="empathy-chart" label="五维共情指数雷达图" />
+      <p className="coach-tip"><HeartOutlined /> {insight.empathy.improvement}</p>
+    </article>
+  );
+}
+
+function HarnessCard({ insight, selectedActions, onActions, onApprove, canApprove }: { insight: LumiInsight; selectedActions: string[]; onActions: (ids: string[]) => void; onApprove: () => void; canApprove: boolean }) {
+  const actionIds = insight.riskSignals.length ? ["ESCALATE_PRODUCT_SAFETY", "NOTIFY_DUTY_MANAGER"] : [];
+  return (
+    <article className="harness-card insight-card">
+      <SectionHead eyebrow="AGENT HARNESS" title="AgentLoop · 可回放执行" extra={<Tag>{insight.trace.length} 个节点</Tag>} />
+      <div className="loop-strip">
+        {['SENSE', 'THINK', 'ACT', 'OBSERVE', 'REFLECT'].map((step, index) => <span key={step}><i>{index + 1}</i>{step}</span>)}
+      </div>
+      <div className="trace-list">
+        {insight.trace.map((item) => (
+          <div key={`${item.node}-${item.latency}`}>
+            <i className={item.state}><CheckOutlined /></i>
+            <span><b>{item.node}</b><small>{item.detail}</small></span>
+            <em>{item.latency} ms</em>
+          </div>
+        ))}
+      </div>
+      <div className="approval-gate">
+        <div><SafetyCertificateOutlined /><span><b>人工审批门</b><small>Agent 只生成建议；副作用进入幂等 Outbox</small></span></div>
+        {actionIds.map((id) => (
+          <label key={id}><input type="checkbox" checked={selectedActions.includes(id)} onChange={(event) => onActions(event.target.checked ? [...selectedActions, id] : selectedActions.filter((item) => item !== id))} />{id === "ESCALATE_PRODUCT_SAFETY" ? "升级产品安全事件" : "通知值班主管"}</label>
+        ))}
+        <Button disabled={!canApprove || !actionIds.length || !selectedActions.length} onClick={onApprove}>批准受控动作</Button>
+      </div>
+    </article>
+  );
+}
+
+function InsightPanel({ insight, running, activeNode, onUse, onFeedback, selectedActions, onActions, onApprove, role }: {
+  insight: LumiInsight;
+  running: boolean;
+  activeNode: string;
+  onUse: (text: string) => void;
+  onFeedback: (kind: "subtext" | "prediction", verdict: "accurate" | "partially" | "inaccurate") => void;
+  selectedActions: string[];
+  onActions: (ids: string[]) => void;
+  onApprove: () => void;
+  role: LumiRole;
+}) {
+  return (
+    <aside className="insight-panel">
+      <div className="insight-topline">
+        <div><LumiMark /><span><b>LumiSense Intelligence</b><small>Sense → Respond → Resolve → Measure</small></span></div>
+        <RuntimeProof insight={insight} running={running} activeNode={activeNode} />
+      </div>
+      <div className="insight-scroll">
+        <PerceptionCard insight={insight} />
+        <SubtextCard insight={insight} onFeedback={(verdict) => onFeedback("subtext", verdict)} />
+        <ProphetCard insight={insight} onApply={() => onUse(insight.scripts[0].text)} onFeedback={(verdict) => onFeedback("prediction", verdict)} />
+        <ScriptsCard insight={insight} onUse={onUse} />
+        <ProductMatchCard insight={insight} />
+        <EmpathyCard insight={insight} />
+        <HarnessCard insight={insight} selectedActions={selectedActions} onActions={onActions} onApprove={onApprove} canApprove={['agent_senior', 'supervisor', 'admin'].includes(role)} />
+      </div>
+    </aside>
+  );
+}
+
+function ChallengeBar({ onRun, running }: { onRun: (input: RunInput) => void; running: boolean }) {
+  const [value, setValue] = useState("算了不说了，反正你们家东西就那样。我已经用了两周，一点效果都没有。");
+  return (
+    <section className="challenge-bar">
+      <div className="challenge-label"><span>JUDGE CHALLENGE</span><b>输入任意美妆客服原话</b><small>同一条 Harness 链路实时运行</small></div>
+      <textarea value={value} onChange={(event) => setValue(event.target.value)} aria-label="评委开放输入" />
+      <Button type="primary" loading={running} icon={<ThunderboltFilled />} onClick={() => onRun({ conversation_id: `judge_${Date.now()}`, customer_id: "judge_consumer", text: value })}>现场分析</Button>
+    </section>
+  );
+}
+
+function Workspace({ role }: { role: LumiRole }) {
+  const [scenarioKey, setScenarioKey] = useState<LumiScenarioKey>("allergy");
+  const [insight, setInsight] = useState<LumiInsight>(scenarios.allergy);
+  const [draft, setDraft] = useState(scenarios.allergy.scripts[0].text);
+  const [running, setRunning] = useState(false);
+  const [activeNode, setActiveNode] = useState("");
+  const [notice, setNotice] = useState("");
+  const [liveCaseId, setLiveCaseId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState("demo_001");
+  const [selectedActions, setSelectedActions] = useState<string[]>([]);
+
+  const selectScenario = (key: Exclude<LumiScenarioKey, "challenge">) => {
+    setScenarioKey(key);
+    setInsight(scenarios[key]);
+    setDraft(scenarios[key].scripts[0].text);
+    setNotice("");
+    setLiveCaseId(null);
+    setConversationId(scenarioInputs[key].conversation_id);
+    setSelectedActions([]);
   };
 
-  const submitChallenge = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const text = challengeText.trim();
-    if (text.length < 6) {
-      setNotice("请至少输入 6 个字的真实客服问题，便于完成风险与证据判断。");
-      return;
+  const run = async (input: RunInput) => {
+    setRunning(true);
+    setActiveNode("Sense · 接收并脱敏");
+    setNotice("");
+    setScenarioKey("challenge");
+    setConversationId(input.conversation_id);
+    setInsight(insightFromRun(input));
+    try {
+      if (!CAREPULSE_API_ENABLED) throw new Error("demo");
+      const result = await startRun(input, (node) => setActiveNode(node));
+      const next = insightFromRun(input, result);
+      setInsight(next);
+      setDraft(next.scripts[0].text);
+      setLiveCaseId(result.case_id);
+      setSelectedActions(result.copilot.recommended_actions.map((item) => item.action));
+      setNotice(result.review.approved ? "完整 Harness 运行完成，建议已通过独立审查。" : "审查未通过，已转人工复核且不会执行任何动作。");
+    } catch {
+      const fallback = insightFromRun(input);
+      setInsight(fallback);
+      setDraft(fallback.scripts[0].text);
+      setNotice("在线运行暂不可用，当前展示确定性安全回退；不会伪装成实时模型结果。");
+    } finally {
+      setRunning(false);
+      setActiveNode("");
     }
-    const selectedProduct =
-      challengeOrder === "ORDER_1024"
-        ? "FOUNDATION_P120"
-        : challengeOrder === "ORDER_2088"
-          ? "CREAM_B26C0719"
-          : /玻尿酸|精华/.test(text)
-            ? "SERUM_HA30"
-            : undefined;
-    onCustomRun({
-      conversation_id: `judge_${Date.now()}`,
-      customer_id: "judge_live_consumer",
-      text,
-      ...(challengeOrder ? { order_id: challengeOrder } : {}),
-      ...(selectedProduct ? { product_id: selectedProduct } : {}),
-      contact_count: challengeRepeat ? 3 : 1,
-      previous_promise_overdue: challengeOverdue,
-    });
   };
 
   const approve = async () => {
-    if (submitting || finalized) return;
-    if (liveCaseId) {
-      setSubmitting(true);
-      try {
-        const changed = draft !== scenario.draft;
-        const decision = changed ? "EDIT" : "ACCEPT";
-        const result = await approveCase(
-          liveCaseId,
-          decision,
-          draft,
-          selectedActionIds,
-        );
-        setScenario((current) => ({ ...current, status: result.state }));
-        setFinalized(true);
-        setNotice(
-          `审批已落库，状态 ${result.state}；${result.outbox_event_ids.length} 项动作已进入可重试 Outbox。`,
-        );
-      } catch {
-        setNotice("审批未通过权限或状态校验，未写入任何副作用。");
-      } finally {
-        setSubmitting(false);
-      }
-      return;
-    }
-    const critical = scenario.severity === "CRITICAL";
-    setNotice(
-      critical
-        ? "已批准升级计划：风险工单与主管通知已安全写入 Outbox。"
-        : "建议回复已批准，案例状态更新为 APPROVED；等待人工发送。",
-    );
-  };
-
-  const escalate = async () => {
-    if (submitting || finalized) return;
-    const supervisor = ["SUPERVISOR", "RISK_MANAGER", "ADMIN"].includes(
-      principal?.role ?? "AGENT",
-    );
     if (!liveCaseId) {
-      setFinalized(true);
-      setNotice(
-        supervisor
-          ? "演示升级已确认；接入 API 后将以同一审批门写入 Outbox。"
-          : "演示主管复核请求已确认；接入 API 后将进入主管审批队列。",
-      );
+      setNotice("当前是演示数据；受控动作只在真实 Harness case 中进入 Outbox。");
       return;
     }
-    if (
-      supervisor &&
-      scenario.severity === "CRITICAL" &&
-      !selectedActionIds.includes("ESCALATE_PRODUCT_SAFETY")
-    ) {
-      setNotice("严重风险升级前，必须明确勾选产品安全升级动作。");
-      return;
-    }
-    setSubmitting(true);
     try {
-      const result = await approveCase(
-        liveCaseId,
-        supervisor ? "ESCALATE" : "REQUEST_ESCALATION",
-        draft,
-        supervisor ? selectedActionIds : [],
-      );
-      setScenario((current) => ({ ...current, status: result.state }));
-      setFinalized(true);
-      setNotice(
-        supervisor
-          ? `主管升级已落库，${result.outbox_event_ids.length} 项动作进入可重试 Outbox。`
-          : "已创建主管复核请求，案例进入 PENDING_SUPERVISOR_APPROVAL；当前建议不会自动发送。",
-      );
+      await approveCase(liveCaseId, "ACCEPT", "", selectedActions);
+      setNotice("受控动作已由人工批准并写入幂等 Outbox。外部适配器仍保持关闭。 ");
     } catch {
-      setNotice("升级请求未通过权限或状态校验，未创建任何副作用。");
-    } finally {
-      setSubmitting(false);
+      setNotice("审批未执行：当前角色、案例状态或动作权限未满足。 ");
     }
   };
 
-  const reject = async () => {
-    if (submitting || finalized) return;
-    if (liveCaseId) {
-      setSubmitting(true);
-      try {
-        const result = await approveCase(liveCaseId, "REJECT", draft, []);
-        setScenario((current) => ({ ...current, status: result.state }));
-        setFinalized(true);
-        setNotice("已拒绝本次建议，审批记录已保存，未创建副作用。");
-      } catch {
-        setNotice("拒绝操作未完成，请刷新运行状态后重试。");
-      } finally {
-        setSubmitting(false);
-      }
-      return;
-    }
-    setNotice("已拒绝本次建议，拒绝原因与当前草稿已写入审批记录。");
-  };
-
-  const severity = severityMeta[scenario.severity];
-  const totalMs = scenario.trace.reduce((sum, item) => sum + item.ms, 0);
-  const runtimePending = scenario.runtime.model === "正在验证";
-  const liveModel = scenario.runtime.model_mode === "LIVE_MODEL";
-  const fallbackLabel: Record<string, string> = {
-    awaiting_runtime: "正在核验模型运行状态",
-    api_key_not_configured: "模型密钥未配置，使用可重复结构化回退",
-    model_timeout: "模型超时，已安全切换结构化回退",
-    model_unavailable: "模型暂不可用，已安全切换结构化回退",
-  };
-
-  return (
-    <main className="workbench-shell">
-      <form className="judge-console" onSubmit={submitChallenge}>
-        <div className="judge-console-title">
-          <span className="judge-icon">
-            <ExperimentOutlined />
-          </span>
-          <div>
-            <span className="eyebrow">JUDGE CHALLENGE</span>
-            <strong>粘贴任意美妆客服问题，现场验证非脚本化链路</strong>
-          </div>
-        </div>
-        <textarea
-          value={challengeText}
-          onChange={(event) => setChallengeText(event.target.value)}
-          maxLength={1200}
-          placeholder="例如：昨晚用了面霜后脸上发痒，之前联系两次都没处理，我准备去投诉……"
-          aria-label="评委开放投诉输入"
-        />
-        <div className="judge-controls">
-          <select
-            value={challengeOrder}
-            onChange={(event) => setChallengeOrder(event.target.value)}
-            aria-label="关联演示订单"
-          >
-            <option value="">不关联订单</option>
-            <option value="ORDER_1024">ORDER_1024 · 粉底液</option>
-            <option value="ORDER_2088">ORDER_2088 · 面霜</option>
-          </select>
-          <label>
-            <input
-              type="checkbox"
-              checked={challengeRepeat}
-              onChange={(event) => setChallengeRepeat(event.target.checked)}
-            />
-            已重复联系
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={challengeOverdue}
-              onChange={(event) => setChallengeOverdue(event.target.checked)}
-            />
-            历史承诺超时
-          </label>
-        </div>
-        <Button
-          type="primary"
-          htmlType="submit"
-          icon={<ExperimentOutlined />}
-          loading={scenarioKey === "challenge" && processingIndex >= 0}
-          disabled={!challengeText.trim()}
-        >
-          现场分析
-        </Button>
-        <small>输入先脱敏；建议不自动发送；副作用仍需人工审批</small>
-      </form>
-
-      <section className="scenario-strip" aria-label="演示场景">
-        <div className="scenario-intro">
-          <span className="eyebrow">DEMO PATHS</span>
-          <strong>三条可验证业务链路</strong>
-        </div>
-        <div className="scenario-options">
-          {demoScenarioKeys.map((key) => {
-            const item = scenarios[key];
-            return (
-              <button
-                className={`scenario-option ${key === scenarioKey ? "is-active" : ""}`}
-                key={key}
-                onClick={() => switchScenario(key)}
-                data-testid={`scenario-${key}`}
-              >
-                <span className="scenario-letter">{item.short}</span>
-                <span>
-                  <b>{item.label}</b>
-                  <small>{item.badge}</small>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <div className={`live-state ${runtimeMode !== "online" ? "is-demo" : ""}`}>
-          <span className="live-dot" />
-          {runtimeMode === "online"
-            ? "Harness 在线"
-            : runtimeMode === "connecting"
-              ? "正在连接 Harness"
-              : runtimeMode === "error"
-                ? "演示回退"
-                : "演示模式"}
-          <small>
-            {runtimeMode === "online"
-              ? "REST + SSE · 持久化运行时"
-              : runtimeMode === "connecting"
-                ? "正在验证运行时"
-                : "无后端副作用"}
-          </small>
-        </div>
-      </section>
-
-      <section
-        className={`model-proof ${liveModel ? "is-live" : "is-fallback"} ${runtimePending ? "is-pending" : ""}`}
-        aria-label="模型运行证明"
-      >
-        <div>
-          <span className="model-proof-dot" />
-          <strong>
-            {runtimePending
-              ? "VERIFYING MODEL"
-              : liveModel
-                ? "LIVE MODEL"
-                : "SAFE FALLBACK"}
-          </strong>
-        </div>
-        <span className="model-name">{scenario.runtime.model}</span>
-        <p>
-          {runtimePending
-            ? "正在读取本轮 Trace"
-            : liveModel
-              ? `Triage / Copilot / Review 三次结构化调用 · ${scenario.runtime.model_latency_ms}ms · ${scenario.runtime.input_tokens + scenario.runtime.output_tokens} tokens`
-              : fallbackLabel[scenario.runtime.fallback_reason ?? ""] ??
-                "确定性 Harness 回退已启用"}
-        </p>
-        <code>
-          {liveModel ? "fallback_used=false" : "fallback_used=true"} · JSON
-          Schema · validators
-        </code>
-      </section>
-
-      {processingIndex >= 0 && (
-        <div className="processing-bar" role="status" aria-live="polite">
-          <div className="processing-orb">
-            <StarFilled />
-          </div>
-          <div className="processing-copy">
-            <b>{processingSteps[processingIndex]}</b>
-            <span>
-              {processingIndex + 1} / {processingSteps.length} · 受控状态图执行中
-            </span>
-          </div>
-          <Progress
-            percent={((processingIndex + 1) / processingSteps.length) * 100}
-            showInfo={false}
-            strokeColor="#2563eb"
-            trailColor="#e8edf5"
-          />
-        </div>
-      )}
-
-      {notice && (
-        <div className="approval-notice" role="status">
-          <CheckCircleFilled />
-          <span>{notice}</span>
-          <button aria-label="关闭提示" onClick={() => setNotice("")}>
-            <CloseOutlined />
-          </button>
-        </div>
-      )}
-
-      <section className="workbench-grid">
-        <aside className="panel conversation-panel">
-          <div className="panel-head conversation-head">
-            <div className="customer-identity">
-              <Badge dot color={severity.color} offset={[-2, 40]}>
-                <Avatar size={44} className="customer-avatar">
-                  {scenario.customer.slice(0, 1)}
-                </Avatar>
-              </Badge>
-              <div>
-                <div className="identity-row">
-                  <h2>{scenario.customer}</h2>
-                  {scenarioKey === "refund" && <Tag color="gold">金卡</Tag>}
-                </div>
-                <p>{scenario.meta}</p>
-              </div>
-            </div>
-            <Button type="text" icon={<MoreOutlined />} aria-label="更多会话操作" />
-          </div>
-
-          <div className="case-ribbon">
-            <div>
-              <span>案例状态</span>
-              <b>{scenario.status.replaceAll("_", " ")}</b>
-            </div>
-            <span className="state-dot" />
-          </div>
-
-          <div className="conversation-scroll">
-            <div className="timeline-date">今天</div>
-            {scenario.messages.map((message, index) => (
-              <div className={`message-row ${message.by}`} key={`${message.time}-${index}`}>
-                {message.by === "agent" && (
-                  <Avatar size={26} icon={<UserOutlined />} className="agent-avatar" />
-                )}
-                <div>
-                  <div className="message-bubble">{message.text}</div>
-                  <span className="message-time">{message.time}</span>
-                </div>
-              </div>
-            ))}
-            <div className="conversation-marker">
-              <StarFilled />
-              Copilot 已接手分析
-            </div>
-          </div>
-
-          {scenario.order && (
-            <div className="order-card">
-              <div className="order-thumb">
-                <span />
-              </div>
-              <div className="order-copy">
-                <div>
-                  <b>{scenario.order.product}</b>
-                  <span>{scenario.order.id}</span>
-                </div>
-                <div className="order-meta">
-                  <strong>{scenario.order.amount}</strong>
-                  <span>{scenario.order.state}</span>
-                </div>
-                <small>{scenario.order.extra}</small>
-              </div>
-            </div>
-          )}
-        </aside>
-
-        <section className="center-stack">
-          <article className="panel understanding-card">
-            <div className="card-label-row">
-              <div className="icon-label blue">
-                <RobotOutlined />
-                <span>Triage Agent</span>
-              </div>
-              <div className="confidence">
-                <span>置信度</span>
-                <b>{Math.round(scenario.confidence * 100)}%</b>
-              </div>
-            </div>
-            <h1>消费者问题理解</h1>
-            <p className="summary-text">{scenario.summary}</p>
-            <div className="triage-grid">
-              <div>
-                <span>服务意图</span>
-                <b>{scenario.intent}</b>
-              </div>
-              <div>
-                <span>问题类型</span>
-                <b>{scenario.issue}</b>
-              </div>
-              <div>
-                <span>明确诉求</span>
-                <b>{scenario.explicit}</b>
-              </div>
-            </div>
-            <div className="service-goal">
-              <span className="goal-line" />
-              <div>
-                <span>本轮服务目标</span>
-                <p>{scenario.serviceGoal}</p>
-              </div>
-            </div>
-          </article>
-
-          <article className="panel copilot-card">
-            <div className="copilot-head">
-              <div>
-                <div className="icon-label indigo">
-                  <StarFilled />
-                  <span>Copilot 建议</span>
-                </div>
-                <h2>建议回复</h2>
-              </div>
-              <div className="grounded-badge">
-                <SafetyCertificateOutlined />
-                已基于 {scenario.evidence.length} 条证据
-              </div>
-            </div>
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              disabled={finalized}
-              aria-label="Copilot 建议回复"
-              data-testid="draft-reply"
-            />
-            <div className="draft-meta">
-              <span>{draft.length} 字</span>
-              <span>已脱敏</span>
-              <span>无自动发送权限</span>
-            </div>
-
-            <div className="suggested-actions">
-              <div className="section-title">
-                <span>建议动作</span>
-                <small>所有副作用均需审批</small>
-              </div>
-              {scenario.actions.map((item, index) => (
-                <div className="action-row" key={item.action}>
-                  <input
-                    type="checkbox"
-                    aria-label={`批准动作 ${item.action}`}
-                    checked={selectedActionIds.includes(item.id ?? item.action)}
-                    disabled={finalized || submitting}
-                    onChange={(event) => {
-                      const id = item.id ?? item.action;
-                      setSelectedActionIds((current) =>
-                        event.target.checked
-                          ? [...current, id]
-                          : current.filter((value) => value !== id),
-                      );
-                    }}
-                  />
-                  <span className="action-index">0{index + 1}</span>
-                  <div>
-                    <b>{item.action}</b>
-                    <p>{item.reason}</p>
-                  </div>
-                  <Tag>{item.gate}</Tag>
-                </div>
-              ))}
-            </div>
-
-            <div className="approval-actions">
-              <div className="approval-copy">
-                <span>最终决策权</span>
-                <b>人工客服</b>
-              </div>
-              <div className="button-group">
-                <Tooltip title="编辑当前建议">
-                  <Button
-                    icon={<EditOutlined />}
-                    onClick={() => textareaRef.current?.focus()}
-                    aria-label="编辑建议回复"
-                    disabled={finalized || submitting}
-                  />
-                </Tooltip>
-                <Button
-                  danger
-                  icon={<CloseOutlined />}
-                  onClick={reject}
-                  disabled={finalized}
-                  loading={submitting}
-                >
-                  拒绝
-                </Button>
-                <Button
-                  icon={<ArrowUpOutlined />}
-                  onClick={escalate}
-                  disabled={
-                    finalized ||
-                    submitting ||
-                    (scenario.severity === "LOW" && scenario.review.approved)
-                  }
-                >
-                  {["SUPERVISOR", "RISK_MANAGER", "ADMIN"].includes(
-                    principal?.role ?? "AGENT",
-                  )
-                    ? "主管升级"
-                    : "请求主管升级"}
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<CheckOutlined />}
-                  onClick={approve}
-                  data-testid="approve-action"
-                  disabled={
-                    finalized ||
-                    !scenario.review.approved ||
-                    scenario.severity === "CRITICAL"
-                  }
-                  loading={submitting}
-                >
-                  {finalized ? "已完成审批" : "接受建议"}
-                </Button>
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <aside className="right-stack">
-          <article className={`panel risk-card ${severity.className}`}>
-            <div className="risk-top">
-              <div>
-                <div className="icon-label risk">
-                  {scenario.severity === "LOW" ? <SafetyCertificateOutlined /> : <WarningFilled />}
-                  <span>Risk Signal Engine</span>
-                </div>
-                <div className="risk-score-row">
-                  <h2>{severity.label}</h2>
-                  <span>{severity.hint}</span>
-                </div>
-              </div>
-              <div className="risk-confidence">
-                <b>{Math.round(scenario.confidence * 100)}</b>
-                <span>confidence</span>
-              </div>
-            </div>
-            <div className="risk-divider" />
-            {scenario.riskSignals.length ? (
-              <div className="signal-list">
-                {scenario.riskSignals.map((signal) => (
-                  <div key={signal}>
-                    <span className="signal-pin" />
-                    <p>{signal}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="no-risk">
-                <CheckCircleFilled />
-                <div>
-                  <b>未发现服务升级信号</b>
-                  <p>风险结果来自规则与结构化特征，不推断主观情绪。</p>
-                </div>
-              </div>
-            )}
-          </article>
-
-          <article className="panel evidence-card">
-            <div className="section-heading">
-              <div>
-                <DatabaseOutlined />
-                <h2>证据包</h2>
-              </div>
-              <Badge count={scenario.evidence.length} color="#243b67" />
-            </div>
-            <div className="evidence-list">
-              {scenario.evidence.map((item) => (
-                <div className="evidence-item" key={item.ref}>
-                  <span className={`evidence-kind ${item.tone}`}>{item.kind}</span>
-                  <div>
-                    <b>{item.title}</b>
-                    <p>{item.detail}</p>
-                    <code>{item.ref}</code>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="panel review-card">
-            <div className="review-header">
-              <div className="icon-label green">
-                <AuditOutlined />
-                <span>Review Agent</span>
-              </div>
-              <Tag color="success" icon={<CheckCircleFilled />}>
-                {scenario.review.label}
-              </Tag>
-            </div>
-            <p>{scenario.review.detail}</p>
-          </article>
-
-          <article className="panel trace-card">
-            <div className="section-heading trace-heading">
-              <div>
-                <HistoryOutlined />
-                <h2>本轮运行 Trace</h2>
-              </div>
-              <span>{totalMs} ms</span>
-            </div>
-            <div className="trace-list">
-              {scenario.trace.map((item, index) => (
-                <div className="trace-row" key={item.name}>
-                  <div className="trace-rail">
-                    <span className={item.state} />
-                    {index < scenario.trace.length - 1 && <i />}
-                  </div>
-                  <div className="trace-copy">
-                    <div>
-                      <b>{item.name}</b>
-                      <time>{item.ms}ms</time>
-                    </div>
-                    <p>{item.detail}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </article>
-        </aside>
-      </section>
-    </main>
-  );
-}
-
-function Dashboard({ principal }: { principal: CurrentPrincipal | null }) {
-  const [snapshot, setSnapshot] = useState<ApiDashboard | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [resolvingCaseId, setResolvingCaseId] = useState<string | null>(null);
-  const [error, setError] = useState("");
-
-  const refresh = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      setSnapshot(await getDashboard());
-    } catch {
-      setError("风险数据暂时不可用，请稍后重试。");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    let active = true;
-    void getDashboard()
-      .then((data) => {
-        if (active) setSnapshot(data);
-      })
-      .catch(() => {
-        if (active) setError("风险数据暂时不可用，请稍后重试。");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const trendOption = useMemo<EChartsOption>(
-    () => {
-      const trend = snapshot?.risk_trend ?? [];
-      return ({
-      tooltip: { trigger: "axis", backgroundColor: "#172033", borderWidth: 0, textStyle: { color: "#fff" } },
-      grid: { left: 14, right: 12, top: 30, bottom: 12, containLabel: true },
-      xAxis: {
-        type: "category",
-        boundaryGap: false,
-        data: trend.length
-          ? trend.map((item) => item.date.slice(5))
-          : ["暂无数据"],
-        axisLine: { lineStyle: { color: "#e6e8ed" } },
-        axisTick: { show: false },
-        axisLabel: { color: "#8b93a3", fontSize: 11 },
-      },
-      yAxis: {
-        type: "value",
-        axisLine: { show: false },
-        axisTick: { show: false },
-        splitLine: { lineStyle: { color: "#eef0f3" } },
-        axisLabel: { color: "#8b93a3", fontSize: 11 },
-      },
-      series: [
-        {
-          name: "高风险会话",
-          type: "line",
-          smooth: 0.35,
-          data: trend.length ? trend.map((item) => item.count) : [0],
-          symbol: "circle",
-          symbolSize: 7,
-          lineStyle: { color: "#d9364f", width: 3 },
-          itemStyle: { color: "#fff", borderColor: "#d9364f", borderWidth: 3 },
-          areaStyle: {
-            color: {
-              type: "linear",
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-              colorStops: [
-                { offset: 0, color: "rgba(217,54,79,.22)" },
-                { offset: 1, color: "rgba(217,54,79,0)" },
-              ],
-            },
-          },
-        },
-      ],
-      });
-    },
-    [snapshot],
-  );
-
-  const issueOption = useMemo<EChartsOption>(
-    () => {
-      const issueDistribution = snapshot?.issue_distribution ?? [];
-      return ({
-      tooltip: { trigger: "item" },
-      legend: {
-        orient: "vertical",
-        right: 4,
-        top: "center",
-        icon: "circle",
-        itemWidth: 8,
-        itemHeight: 8,
-        textStyle: { color: "#5e6677", fontSize: 11 },
-      },
-      series: [
-        {
-          type: "pie",
-          radius: ["48%", "72%"],
-          center: ["32%", "52%"],
-          avoidLabelOverlap: true,
-          label: { show: false },
-          data: (issueDistribution.length
-            ? issueDistribution
-            : [{ issue: "暂无数据", count: 1 }]
-          ).map((item, index) => ({
-            value: item.count,
-            name: item.issue,
-            itemStyle: {
-              color: ["#2563eb", "#56a3a6", "#d9a441", "#d9364f", "#a4aabc"][
-                index % 5
-              ],
-            },
-          })),
-        },
-      ],
-      });
-    },
-    [snapshot],
-  );
-
-  const totals = snapshot?.totals;
-  const metrics = [
-    {
-      label: "持久化案例",
-      value: totals?.cases ?? 0,
-      detail: "D1 主记录",
-      icon: <MessageOutlined />,
-      tone: "blue",
-    },
-    {
-      label: "高风险会话",
-      value: (totals?.high ?? 0) + (totals?.critical ?? 0),
-      detail: `严重 ${totals?.critical ?? 0}`,
-      icon: <AlertOutlined />,
-      tone: "red",
-    },
-    {
-      label: "建议接受率",
-      value: `${snapshot?.approval_rate ?? 0}%`,
-      detail: `平均修改 ${snapshot?.average_edit_rate ?? 0}%`,
-      icon: <CheckCircleFilled />,
-      tone: "green",
-    },
-    {
-      label: "待主管审批",
-      value: totals?.pending_supervisor ?? 0,
-      detail: `待客服 ${totals?.waiting_approval ?? 0}`,
-      icon: <EditOutlined />,
-      tone: "gold",
-    },
-  ];
-
-  const downloadReport = () => {
-    if (!snapshot) return;
-    const rows = [
-      ["指标", "数值"],
-      ["案例总数", snapshot.totals.cases],
-      ["高风险", snapshot.totals.high],
-      ["严重风险", snapshot.totals.critical],
-      ["待客服审批", snapshot.totals.waiting_approval],
-      ["待主管审批", snapshot.totals.pending_supervisor],
-      ["重复投诉", snapshot.totals.repeat_complaints],
-      ["超时承诺", snapshot.totals.overdue_promises],
-      ["待处理动作", snapshot.totals.pending_actions],
-      ["死信动作", snapshot.totals.dead_letter_actions],
-      ["建议接受率", `${snapshot.approval_rate}%`],
-      ["平均修改率", `${snapshot.average_edit_rate}%`],
-    ];
-    const csv = rows.map((row) => row.join(",")).join("\n");
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(
-      new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }),
-    );
-    link.download = `carepulse-risk-${snapshot.generated_at.slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  };
-
-  const resolveSupervisorCase = async (
-    caseId: string,
-    severity: string,
+  const recordFeedback = async (
+    kind: "subtext" | "prediction",
+    verdict: "accurate" | "partially" | "inaccurate",
   ) => {
-    setResolvingCaseId(caseId);
-    setError("");
     try {
-      await approveCase(
-        caseId,
-        "ESCALATE",
-        "",
-        severity === "CRITICAL" ? ["ESCALATE_PRODUCT_SAFETY"] : [],
+      const result = await submitLumiSenseFeedback({
+        conversationId,
+        kind,
+        verdict,
+        detail:
+          verdict === "accurate"
+            ? "客服确认输出可用"
+            : "客服要求进入 bad case 人工复核",
+      });
+      setNotice(
+        result.data.training_status === "VERIFIED"
+          ? "反馈已记录并写入审计日志。"
+          : "反馈已进入 bad case 人工复核队列，并写入审计日志。",
       );
-      await refresh();
     } catch {
-      setError("主管审批未完成，案例状态或权限可能已变化。");
-    } finally {
-      setResolvingCaseId(null);
+      setNotice("反馈暂未写入在线数据集，请检查当前登录角色或后端连接。");
     }
   };
 
+  if (role === "viewer") {
+    return <RoleGate role={role} allow={['agent_junior', 'agent_senior', 'supervisor', 'admin']}><span /></RoleGate>;
+  }
+
   return (
-    <main className="dashboard-shell">
-      <section className="dashboard-title">
-        <div>
-          <span className="eyebrow">RISK OPERATIONS</span>
-          <h1>风险运行看板</h1>
-          <p>由客服 Copilot 运行中产生的结构化风险事件聚合而成。</p>
-        </div>
-        <div className="dashboard-actions">
-          <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading}>
-            刷新
-          </Button>
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={downloadReport}
-            disabled={!snapshot}
-          >
-            导出本周报告
-          </Button>
-        </div>
+    <main className="workspace-view">
+      <ChallengeBar onRun={run} running={running} />
+      {notice && <div className="global-notice"><CheckCircleFilled />{notice}<button onClick={() => setNotice("")}>×</button></div>}
+      <div className="workspace-grid">
+        <ConversationRail active={scenarioKey} onSelect={selectScenario} />
+        <ChatStage insight={insight} draft={draft} onDraft={setDraft} role={role} onSend={() => setNotice("回复已由人工确认。Demo 环境不连接真实消费者渠道。 ")} />
+        <InsightPanel insight={insight} running={running} activeNode={activeNode} onUse={(text) => { setDraft(text); setNotice("建议已填入人工编辑区，发送前仍可修改。 "); }} onFeedback={(kind, verdict) => void recordFeedback(kind, verdict)} selectedActions={selectedActions} onActions={setSelectedActions} onApprove={approve} role={role} />
+      </div>
+      {scenarioKey !== "challenge" && (
+        <button className="rerun-fab" onClick={() => void run(scenarioInputs[scenarioKey])} disabled={running}><ReloadOutlined /> 用真实 Harness 重跑此场景</button>
+      )}
+    </main>
+  );
+}
+
+function RiskDashboard({ role }: { role: LumiRole }) {
+  const allowed = ['viewer', 'supervisor', 'admin'].includes(role);
+  const masked = role === 'viewer';
+  const radarOption = useMemo<EChartsOption>(() => ({
+    radar: { indicator: riskMetrics.map((item) => ({ name: item.label, max: item.label === "高危响应" ? 120 : 100 })), radius: "65%", splitNumber: 4, axisName: { color: "#504b63", fontSize: 11 }, splitArea: { areaStyle: { color: ["#fbfafc", "#f3f0fa"] } }, splitLine: { lineStyle: { color: "#ddd8ed" } }, axisLine: { lineStyle: { color: "#ddd8ed" } } },
+    series: [{ type: "radar", data: [{ value: riskMetrics.map((item) => item.value), areaStyle: { color: "rgba(83,74,183,.2)" }, lineStyle: { color: "#534ab7", width: 2 }, itemStyle: { color: "#534ab7" } }] }],
+  }), []);
+
+  if (!allowed) return <main className="locked-view"><RoleGate role={role} allow={['viewer', 'supervisor', 'admin']}><span /></RoleGate></main>;
+
+  return (
+    <main className="dashboard-view page-shell">
+      <section className="page-hero risk-hero">
+        <div><span className="eyebrow">FORCED OUTPUT 02 · REAL-TIME RISK</span><h1>风险异常预警看板</h1><p>从被动接诉升级为前置感知：看风险、看团队、看共情如何转化为业务结果。</p></div>
+        <div className="live-clock"><span /><b>实时</b><small>5 秒刷新 · 最近 21:00:05</small></div>
       </section>
 
-      {error && <div className="dashboard-error">{error}</div>}
-
-      <section className="metric-grid">
-        {metrics.map((item) => (
-          <article className="metric-card" key={item.label}>
-            <div className={`metric-icon ${item.tone}`}>{item.icon}</div>
-            <div>
-              <span>{item.label}</span>
-              <strong>{loading ? "—" : item.value}</strong>
-              <small>{item.detail}</small>
-            </div>
-          </article>
-        ))}
+      <section className="kpi-strip">
+        {riskMetrics.map((item) => <div key={item.label}><span>{item.label}</span><b>{item.display}</b><em className={item.tone}>{item.tone === 'green' ? '● 正常' : '● 关注'}</em></div>)}
       </section>
 
-      <section className="dashboard-grid">
-        <article className="panel chart-card wide">
-          <div className="chart-title">
-            <div>
-              <h2>高风险会话趋势</h2>
-              <p>最近 7 个有事件日期 · D1 风险事件聚合</p>
-            </div>
-            <Tag color="error">
-              严重 {snapshot?.totals.critical ?? 0}
-            </Tag>
-          </div>
-          <EChart option={trendOption} className="trend-chart" />
+      <section className="dashboard-grid primary">
+        <article className="dashboard-card radar-board">
+          <SectionHead eyebrow="5-D RISK RADAR" title="全局风险雷达" extra={<Tag color="green">4 正常 · 1 关注</Tag>} />
+          <EChart option={radarOption} className="risk-radar-chart" label="五维风险雷达图" />
+          <div className="threshold-note"><SafetyCertificateOutlined /> 红线阈值已由 AI 管理员锁定，主管仅可处置事件。</div>
         </article>
-        <article className="panel chart-card">
-          <div className="chart-title">
-            <div>
-              <h2>主要问题类型</h2>
-              <p>当前授权范围内的真实案例结构</p>
-            </div>
-          </div>
-          <EChart option={issueOption} className="issue-chart" />
-        </article>
-      </section>
-
-      <section className="dashboard-lower">
-        <article className="panel queue-card">
-          <div className="chart-title">
-            <div>
-              <h2>待处理升级队列</h2>
-              <p>按风险等级和更新时间排序</p>
-            </div>
-            <Tag>{snapshot?.queue.length ?? 0} 项</Tag>
-          </div>
-          <div className="queue-table">
-            <div className="queue-row queue-head">
-              <span>案例 / 状态</span>
-              <span>风险事件</span>
-              <span>等级</span>
-              <span>更新时间</span>
-              <span>负责人</span>
-              <span>操作</span>
-            </div>
-            {(snapshot?.queue ?? []).map((row) => (
-              <div className="queue-row" key={row.id}>
-                <span>
-                  <b>{row.id}</b>
-                  <small>{row.state}</small>
-                </span>
-                <span>{row.issue}</span>
-                <span>
-                  <Tag color={row.severity === "CRITICAL" ? "error" : "volcano"}>
-                    {row.severity}
-                  </Tag>
-                </span>
-                <span>
-                  <ClockCircleOutlined />{" "}
-                  {new Date(row.updated_at).toLocaleString("zh-CN", {
-                    month: "2-digit",
-                    day: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-                <span>{row.owner}</span>
-                <span>
-                  {row.state === "PENDING_SUPERVISOR_APPROVAL" &&
-                  ["SUPERVISOR", "RISK_MANAGER", "ADMIN"].includes(
-                    principal?.role ?? "AGENT",
-                  ) ? (
-                    <Button
-                      size="small"
-                      type="link"
-                      loading={resolvingCaseId === row.id}
-                      onClick={() =>
-                        void resolveSupervisorCase(row.id, row.severity)
-                      }
-                    >
-                      批准升级
-                    </Button>
-                  ) : (
-                    "—"
-                  )}
-                </span>
+        <article className="dashboard-card alert-board">
+          <SectionHead eyebrow="ALERT STREAM" title="滚动告警流" extra={<Badge count={30} color="#a32d2d" />} />
+          <div className="alert-stream">
+            {riskAlerts.map((alert) => (
+              <div key={alert.id} className={`alert-item ${alert.level}`}>
+                <i>{alert.level === 'red' ? <WarningFilled /> : <AlertOutlined />}</i>
+                <span><b>{alert.title}</b><small>{masked ? '会话 **** · 数据已脱敏' : alert.detail} · {alert.time}</small></span>
+                {!masked && <Button size="small">{alert.action}</Button>}
               </div>
             ))}
-            {!loading && (snapshot?.queue.length ?? 0) === 0 && (
-              <div className="queue-empty">当前没有待处理升级案例</div>
-            )}
           </div>
         </article>
-
-        <aside className="dashboard-side">
-          <article className="panel sla-card">
-            <div className="chart-title">
-              <div>
-                <h2>服务承诺健康度</h2>
-                <p>基于未兑现承诺事件</p>
-              </div>
-            </div>
-            <div className="sla-score">
-              <div>
-                <strong>
-                  {Math.max(0, 100 - (totals?.overdue_promises ?? 0) * 10)}
-                </strong>
-                <span>/ 100</span>
-              </div>
-              <Progress
-                percent={Math.max(
-                  0,
-                  100 - (totals?.overdue_promises ?? 0) * 10,
-                )}
-                showInfo={false}
-                strokeColor="#13a671"
-              />
-            </div>
-            <div className="sla-stats">
-              <span>
-                <b>{totals?.pending_actions ?? 0}</b> 待处理动作
-              </span>
-              <span>
-                <b className="danger">
-                  {totals?.dead_letter_actions ?? 0}
-                </b>{" "}
-                死信
-              </span>
-              <span>
-                <b>{totals?.repeat_complaints ?? 0}</b> 重复投诉
-              </span>
-              <span>
-                <b className="danger">{totals?.overdue_promises ?? 0}</b>{" "}
-                超时承诺
-              </span>
-            </div>
-          </article>
-          <article className="principle-card">
-            <SafetyCertificateOutlined />
-            <div>
-              <b>风险引擎健康</b>
-              <p>
-                硬规则优先；证据缺失进入 REVIEW_FAILED，异常默认人工复核。
-              </p>
-            </div>
-          </article>
-        </aside>
       </section>
 
-      <section className="panel architecture-card">
-        <div className="chart-title">
-          <div>
-            <h2>技术选型落实矩阵</h2>
-            <p>与重构方案逐项对应，可由接口、持久化记录和 Engineering Harness 验证</p>
+      <section className="dashboard-grid secondary">
+        <article className="dashboard-card team-board">
+          <SectionHead eyebrow="TEAM EMPATHY" title="团队共情分布" extra={!masked && <Button size="small" icon={<TeamOutlined />}>派发培训</Button>} />
+          <div className="ranking-list">
+            {teamRanking.map((member, index) => (
+              <div key={member.id}><span className="rank">{index + 1}</span><Avatar size={30}>{masked ? '*' : member.name.slice(0, 1)}</Avatar><span><b>{masked ? `坐席 ${member.id}` : member.name}<small>{member.fatigue === 'exhausted' ? '疲劳预警' : member.fatigue === 'tired' ? '建议关注' : '状态稳定'}</small></b></span><strong>{member.score}</strong><em className={member.trend.startsWith('-') ? 'down' : 'up'}>{member.trend}</em></div>
+            ))}
           </div>
-          <Tag color="success">受控闭环</Tag>
-        </div>
-        <div className="architecture-grid">
-          {[
-            ["Harness", "鉴权、脱敏、幂等 Run、Trace 与事务审批"],
-            ["3 个受控 Agent", "Triage / Copilot / Review 结构化 Artifact"],
-            ["确定性服务", "Risk / Evidence / ToolPolicy / CaseWorkflow"],
-            ["人工审批门", "接受、编辑、拒绝、请求主管与主管升级"],
-            ["Transactional Outbox", "CAS 抢占、重试、退避、死信、幂等执行"],
-            ["REST + SSE", "断线轮询降级、事件游标、心跳与中止处理"],
-            ["D1 / PostgreSQL", "线上持久化 + LangGraph/pgvector 生产参考"],
-            ["Engineering Harness", "路由、风险、证据、权限、并发与工具测试"],
-          ].map(([title, detail]) => (
-            <div key={title}>
-              <CheckCircleFilled />
-              <span>
-                <b>{title}</b>
-                <small>{detail}</small>
-              </span>
-            </div>
-          ))}
-        </div>
+        </article>
+        <article className="dashboard-card funnel-board">
+          <SectionHead eyebrow="EMPATHY TO GMV" title="共情转化漏斗" extra={<Tag color="green">转化 18.3%</Tag>} />
+          <div className="funnel">
+            {[['推荐触达', 120, 100], ['继续咨询', 68, 72], ['加入购物车', 35, 48], ['完成下单', 22, 31]].map(([label, value, width]) => <div key={String(label)} style={{ '--funnel-width': `${width}%` } as React.CSSProperties}><span>{label}</span><b>{value}</b></div>)}
+          </div>
+          <p>深度共情路径的推荐咨询率比固定模板高 <b>+40pp</b>（Demo 假设，待真实 A/B 验证）。</p>
+        </article>
+        <article className="dashboard-card fatigue-board">
+          <SectionHead eyebrow="AGENT WELLBEING" title="坐席疲劳预警" />
+          <div className="fatigue-score"><span>连续高危 case</span><b>11</b><Progress percent={78} showInfo={false} strokeColor="#ba7517" /></div>
+          <p>坐席 #008 最近 10 句语言温度从 52 降至 38，建议 15 分钟内换班。</p>
+          {!masked && <Button block>创建换班建议</Button>}
+        </article>
       </section>
     </main>
   );
 }
 
-function EvaluationEvidence() {
-  const [report, setReport] = useState<EvaluationReport | null>(null);
-  const [error, setError] = useState("");
-
-  const load = async () => {
-    setError("");
-    try {
-      setReport(await getEvaluationReport());
-    } catch {
-      setError("评测报告暂时不可用，请稍后重新计算。");
-    }
-  };
-
-  useEffect(() => {
-    let active = true;
-    void getEvaluationReport()
-      .then((result) => {
-        if (active) setReport(result);
-      })
-      .catch(() => {
-        if (active) setError("评测报告暂时不可用，请稍后重新计算。");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
+function GrowthView({ role }: { role: LumiRole }) {
+  const radarOption = useMemo<EChartsOption>(() => ({
+    radar: { indicator: ['情绪识别', '痛点回应', '方案有效', '语言温度', '品牌契合'].map((name) => ({ name, max: 100 })), radius: '67%', axisName: { color: '#504b63' }, splitArea: { areaStyle: { color: ['#faf9fd', '#f4f1fb'] } }, splitLine: { lineStyle: { color: '#ddd8ed' } }, axisLine: { lineStyle: { color: '#ddd8ed' } } },
+    series: [{ type: 'radar', data: [{ name: '本周', value: [91, 86, 82, 76, 88], areaStyle: { color: 'rgba(15,110,86,.22)' }, lineStyle: { color: '#0f6e56', width: 2 }, itemStyle: { color: '#0f6e56' } }, { name: '团队均值', value: [78, 74, 79, 71, 80], lineStyle: { color: '#aaa3bd', type: 'dashed' }, itemStyle: { color: '#aaa3bd' } }] }],
+  }), []);
+  const curveOption = useMemo<EChartsOption>(() => ({
+    grid: { left: 35, right: 15, top: 25, bottom: 28 },
+    xAxis: { type: 'category', data: ['周一', '周二', '周三', '周四', '周五', '周六', '今天'], boundaryGap: false, axisLine: { lineStyle: { color: '#ded9ea' } } },
+    yAxis: { type: 'value', min: 50, max: 100, splitLine: { lineStyle: { color: '#efedf5' } } },
+    series: [{ type: 'line', data: [68, 72, 75, 74, 80, 83, 85], smooth: true, areaStyle: { color: 'rgba(83,74,183,.12)' }, lineStyle: { color: '#534ab7', width: 3 }, itemStyle: { color: '#534ab7' } }],
+  }), []);
+  const selfOnly = !['supervisor', 'admin'].includes(role);
   return (
-    <main className="evaluation-shell">
-      <section className="evaluation-hero">
-        <div>
-          <span className="eyebrow">COMPETITION EVIDENCE</span>
-          <h1>不是功能清单，是可复现的效果证据</h1>
-          <p>
-            每次打开都从同一套匿名化测试集重新计算；公开局限，不把工程回归冒充真实业务提升。
-          </p>
-        </div>
-        <div className="evaluation-stamp">
-          <ExperimentOutlined />
-          <div>
-            <strong>{report?.methodology.cases ?? "—"}</strong>
-            <span>条美妆客服案例</span>
-          </div>
-          <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-            重新计算
-          </Button>
-        </div>
+    <main className="growth-view page-shell">
+      <section className="page-hero growth-hero"><div><span className="eyebrow">MEASURE · EMPATHY COACH</span><h1>{selfOnly ? '我的共情成长' : '团队共情教练'}</h1><p>不是给客服打一个黑盒分数，而是把每一次“被看见”拆成可学习、可复盘的五个维度。</p></div><div className="hero-score"><b>85</b><span>本周综合分<small>团队排名 3 / 18</small></span></div></section>
+      <section className="growth-grid">
+        <article className="dashboard-card"><SectionHead eyebrow="5-D EMPATHY" title="本周能力雷达" extra={<Tag color="green">+7 分</Tag>} /><EChart option={radarOption} className="growth-radar" label="个人共情能力雷达图" /><div className="legend-line"><span><i className="mine" />本周</span><span><i />团队均值</span></div></article>
+        <article className="dashboard-card curve-card"><SectionHead eyebrow="GROWTH CURVE" title="7 日成长曲线" extra={<Tag>42 条已评分回复</Tag>} /><EChart option={curveOption} className="growth-curve" label="七日共情成长曲线" /><div className="coach-callout"><HeartOutlined /><span><b>本周最值得保持</b><p>你开始先命名消费者的处境，再解释方案。情绪识别维度提升了 13 分。</p></span></div></article>
+        <article className="dashboard-card coaching-card"><SectionHead eyebrow="NEXT BEST PRACTICE" title="下一条就能用的改进" /><div className="before-after"><span>原句</span><p>“不好意思给您带来不便，这边帮您反馈一下。”</p><ArrowRightOutlined /><span>建议改写</span><p>“同一个问题让您第三次来联系我们，确实很消耗耐心。我已经找到前两次记录，不需要您再重复说明。”</p></div><Button type="primary">加入个人话术练习</Button></article>
       </section>
+    </main>
+  );
+}
 
-      {error && <div className="dashboard-error">{error}</div>}
-
-      <section className="evaluation-summary">
-        <article>
-          <span>评测口径</span>
-          <p>{report?.methodology.suite ?? "正在加载评测口径…"}</p>
-        </article>
-        <article>
-          <span>对照基线</span>
-          <p>{report?.methodology.baseline ?? "正在加载基线说明…"}</p>
-        </article>
-        <article className="limitation">
-          <span>诚实边界</span>
-          <p>{report?.methodology.limitation ?? "正在加载限制说明…"}</p>
-        </article>
+function EvolutionView({ role }: { role: LumiRole }) {
+  const [report, setReport] = useState<EvaluationReport | null>(null);
+  const [brand, setBrand] = useState("lancome");
+  const [keywords, setKeywords] = useState("优雅, 法式, 女性力量");
+  const [brandStyle, setBrandStyle] = useState("精致、有温度");
+  const [forbiddenWords, setForbiddenWords] = useState("亲, 宝宝, 家人们");
+  const [configNotice, setConfigNotice] = useState("");
+  useEffect(() => { void getEvaluationReport().then(setReport).catch(() => undefined); }, []);
+  if (!['supervisor', 'admin'].includes(role)) return <main className="locked-view"><RoleGate role={role} allow={['supervisor', 'admin']}><span /></RoleGate></main>;
+  return (
+    <main className="evolution-view page-shell">
+      <section className="page-hero evolution-hero"><div><span className="eyebrow">SELF-EVOLUTION · HUMAN GOVERNED</span><h1>让每个 bad case 变成下一版能力</h1><p>Rubric 评测 → 人工复核 → 训练数据 → A/B 验证。Demo 展示闭环，不宣称已完成真实 SFT 或 Agentic RL。</p></div><Tag color="purple">V2.0 DATA FLYWHEEL</Tag></section>
+      <section className="flywheel">
+        {[['01', '交互数据', '会话、采纳、编辑与结果'], ['02', 'Rubric 评测', 'P0 硬规则 + P1/P2 质量'], ['03', '人工复核', '翻译错误、误报与不安全推荐'], ['04', '训练候选', 'SFT 数据集与版本评估']].map((item, index) => <div key={item[0]}><span>{item[0]}</span><b>{item[1]}</b><p>{item[2]}</p>{index < 3 && <ArrowRightOutlined />}</div>)}
       </section>
-
-      <section className="panel evaluation-metrics">
-        <div className="chart-title">
-          <div>
-            <h2>CarePulse Harness vs. 固定模板基线</h2>
-            <p>结果由 /api/v1/evaluation 在线计算，目标值来自当前验收门槛</p>
-          </div>
-          <Tag color="success">{report?.report_version ?? "CALCULATING"}</Tag>
-        </div>
-        <div className="evaluation-table">
-          <div className="evaluation-row evaluation-head">
-            <span>指标</span>
-            <span>CarePulse</span>
-            <span>基线</span>
-            <span>验收目标</span>
-          </div>
-          {(report?.metrics ?? []).map((metric) => (
-            <div className="evaluation-row" key={metric.key}>
-              <span>
-                <b>{metric.label}</b>
-                <small>{metric.key}</small>
-              </span>
-              <span className="score-cell carepulse-score">
-                <strong>{metric.carepulse}%</strong>
-                <Progress
-                  percent={metric.carepulse}
-                  showInfo={false}
-                  strokeColor="#13a671"
-                />
-              </span>
-              <span className="score-cell baseline-score">
-                <strong>{metric.baseline}%</strong>
-                <Progress
-                  percent={metric.baseline}
-                  showInfo={false}
-                  strokeColor="#9ca5b3"
-                />
-              </span>
-              <span>
-                <Tag color="blue">{metric.target}</Tag>
-              </span>
-            </div>
-          ))}
-          {!report && <div className="evaluation-loading">正在执行 60 条回归案例…</div>}
-        </div>
-      </section>
-
-      <section className="evaluation-lower">
-        <article className="panel">
-          <div className="chart-title">
-            <div>
-              <h2>场景切片通过情况</h2>
-              <p>必须同时通过路由、风险、引用、承诺和独立审查</p>
-            </div>
-          </div>
-          <div className="slice-grid">
-            {(report?.slices ?? []).map((slice) => (
-              <div key={slice.name}>
-                <span>{slice.name}</span>
-                <strong>
-                  {slice.passed}/{slice.cases}
-                </strong>
-                <Progress
-                  percent={(slice.passed / slice.cases) * 100}
-                  showInfo={false}
-                  strokeColor={
-                    slice.passed === slice.cases ? "#13a671" : "#d9364f"
-                  }
-                />
-                <small>{slice.note}</small>
-              </div>
-            ))}
-          </div>
-        </article>
-        <article className="panel claim-card">
-          <div className="chart-title">
-            <div>
-              <h2>本报告可以证明什么</h2>
-              <p>只陈述当前测试能够支持的结论</p>
-            </div>
-          </div>
-          <div className="claim-list">
-            {(report?.claims ?? []).map((claim) => (
-              <div key={claim}>
-                <CheckCircleFilled />
-                <span>{claim}</span>
-              </div>
-            ))}
-          </div>
-        </article>
+      <section className="evolution-grid">
+        <article className="dashboard-card cold-start-card"><SectionHead eyebrow="COLD START FACTORY" title="无需真实数据也能完整演示" extra={<Tag color="green">READY</Tag>} /><div className="cold-stats">{coldStartStats.map((item) => <div key={item.label}><b>{item.value}</b><span>{item.label}</span></div>)}</div><p>覆盖 12 类美妆场景、5 类情绪拐点、50+ 成分规则和 7 个子品牌人设。所有人物与指标均为匿名化伪数据。</p></article>
+        <article className="dashboard-card eval-card"><SectionHead eyebrow="ENGINEERING EVAL" title="60 条回归证据" extra={<Tag>{report ? `${report.methodology.cases} CASES` : 'LOADING'}</Tag>} /><div className="eval-metrics">{(report?.metrics ?? [{ key: 'risk', label: '高风险召回率', carepulse: 100, target: '100%' }, { key: 'citation', label: '证据引用有效率', carepulse: 100, target: '≥95%' }, { key: 'safe', label: '证据缺失安全失败', carepulse: 100, target: '100%' }]).slice(0, 5).map((metric) => <div key={metric.key}><span>{metric.label}</span><b>{metric.carepulse}%</b><Progress percent={metric.carepulse} showInfo={false} strokeColor="#0f6e56" /><em>目标 {metric.target}</em></div>)}</div><small>工程回归不等于欧莱雅真实业务 A/B；接入真实数据后需补盲测。</small></article>
+        <article className="dashboard-card badcase-card"><SectionHead eyebrow="BAD CASE QUEUE" title="待复核训练候选" extra={<Badge count={12} color="#ba7517" />} /><div className="badcase-list">{[['翻译错误', '“没事没事”被误判为中性', '高'], ['不安全推荐', '孕期场景出现视黄醇 SKU', '严重'], ['预警误报', '“包装红色”触发红肿规则', '中'], ['品牌偏差', '兰蔻话术出现“亲亲”', '中']].map((item) => <div key={item[1]}><Tag color={item[2] === '严重' ? 'red' : 'gold'}>{item[2]}</Tag><span><b>{item[0]}</b><small>{item[1]}</small></span><Button size="small">复核</Button></div>)}</div></article>
+        <article className="dashboard-card rbac-card"><SectionHead eyebrow="RBAC · AUDIT" title="五级权限矩阵" extra={<Tag>{roleProfiles[role].level} 当前视图</Tag>} /><div className="permission-table"><div className="permission-row header"><span>能力</span>{(['viewer', 'agent_junior', 'agent_senior', 'supervisor', 'admin'] as LumiRole[]).map((item) => <b key={item}>{roleProfiles[item].level}</b>)}</div>{permissionMatrix.map((row) => <div className="permission-row" key={row.capability}><span>{row.capability}</span>{(['viewer', 'agent_junior', 'agent_senior', 'supervisor', 'admin'] as LumiRole[]).map((item) => <b key={item} className={row[item] ? 'yes' : 'no'}>{row[item] ? '✓' : '—'}</b>)}</div>)}</div></article>
+        <article className="dashboard-card admin-config-card"><SectionHead eyebrow="ADMIN · BRAND PERSONA" title="品牌人设配置" extra={<Tag color={role === 'admin' ? 'purple' : 'default'}>{role === 'admin' ? '可编辑' : '主管只读'}</Tag>} /><label><span>品牌</span><Select value={brand} disabled={role !== 'admin'} onChange={setBrand} options={[['lancome', 'Lancôme 兰蔻'], ['loreal', "L'Oréal Paris 巴黎欧莱雅"], ['lrp', 'La Roche-Posay 理肤泉'], ['ysl', 'YSL 圣罗兰'], ['kiehls', "Kiehl's 科颜氏"], ['shu', 'Shu Uemura 植村秀'], ['maybelline', 'Maybelline 美宝莲']].map(([value, label]) => ({ value, label }))} /></label><label><span>人设关键词</span><input value={keywords} disabled={role !== 'admin'} onChange={(event) => setKeywords(event.target.value)} /></label><label><span>沟通风格</span><input value={brandStyle} disabled={role !== 'admin'} onChange={(event) => setBrandStyle(event.target.value)} /></label><label><span>禁用词</span><input value={forbiddenWords} disabled={role !== 'admin'} onChange={(event) => setForbiddenWords(event.target.value)} /></label><div className="config-actions"><small>{configNotice || '保存后写入配置表与审计日志；真实受信身份仍需具备 ADMIN。'}</small><Button type="primary" disabled={role !== 'admin'} onClick={() => void updateBrandPersona({ brand, keywords: keywords.split(',').map((item) => item.trim()).filter(Boolean), style: brandStyle, forbiddenWords: forbiddenWords.split(',').map((item) => item.trim()).filter(Boolean) }).then(() => setConfigNotice('品牌人设已更新并同步记录审计。')).catch(() => setConfigNotice('演示身份已切换，但当前受信服务端身份不是 ADMIN，未写入配置。'))}>保存并同步 Agent</Button></div></article>
+        <article className="dashboard-card knowledge-card"><SectionHead eyebrow="BEAUTY KNOWLEDGE" title="行业知识图谱" /><div className="knowledge-layers">{[['L1', '12 类品类', '护肤 · 彩妆 · 个护'], ['L2', '6 类肤质', '中性 · 干油混合 · 敏感 · 痘肌'], ['L3', '50+ 成分', '活性 · 风险 · 修护 · 禁忌替代'], ['L4', '20+ 场景', '不良反应 · 选品 · 物流 · 权益'], ['L5', '5 类拐点', '恐慌 · 失望 · 焦虑 · 不满 · 怀疑']].map((item) => <div key={item[0]}><span>{item[0]}</span><b>{item[1]}</b><small>{item[2]}</small></div>)}</div></article>
+        <article className="dashboard-card roadmap-card"><SectionHead eyebrow="ROADMAP" title="从 Demo 到规模化" /><div className="roadmap-list">{[['48h', '黑客松 Demo', 'P0 全链路可演示'], ['Month 1', '可试用 MVP', 'RBAC、审计、真实知识接入'], ['Month 2', '数据闭环', 'bad case 与 SFT 数据集'], ['Month 3', '规模化验证', 'A/B 与模型迭代']].map((item, index) => <div key={item[0]} className={index === 0 ? 'active' : ''}><span>{item[0]}</span><b>{item[1]}</b><small>{item[2]}</small></div>)}</div></article>
       </section>
     </main>
   );
 }
 
 export default function Home() {
-  const [view, setView] = useState<ViewKey>("workbench");
-  const [scenario, setScenario] = useState<ScenarioKey>("refund");
-  const [customInput, setCustomInput] = useState<RunInput | null>(null);
-  const [principal, setPrincipal] = useState<CurrentPrincipal | null>(null);
-  const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [role, setRole] = useState<LumiRole>("agent_senior");
+  const [view, setView] = useState<LumiView>("workspace");
+  const profile = roleProfiles[role];
 
-  useEffect(() => {
-    let active = true;
-    void Promise.all([getCurrentPrincipal(), getDashboard()])
-      .then(([identity, dashboard]) => {
-        if (!active) return;
-        setPrincipal(identity);
-        setPendingApprovals(
-          dashboard.totals.waiting_approval +
-            dashboard.totals.pending_supervisor,
-        );
-      })
-      .catch(() => {
-        if (!active) return;
-        setPrincipal({
-          email: "local-agent@carepulse.invalid",
-          display_name: "本地客服",
-          role: "AGENT",
-        });
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const roleLabel: Record<string, string> = {
-    AGENT: "客服专员",
-    SUPERVISOR: "客服主管",
-    RISK_MANAGER: "风险经理",
-    ADMIN: "系统管理员",
+  const changeRole = (next: LumiRole) => {
+    setRole(next);
+    if (!roleViews[next].includes(view)) setView(roleViews[next][0]);
   };
-  const displayName = principal?.display_name || principal?.email || "正在识别";
-  const avatarText = displayName.slice(0, 1).toUpperCase();
 
   return (
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: "#1e5eff",
-          borderRadius: 10,
-          colorText: "#172033",
-          colorBgContainer: "#ffffff",
-          fontFamily:
-            '"Inter", "SF Pro Display", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
-        },
-        components: {
-          Button: { controlHeight: 36, fontWeight: 600 },
-          Tag: { borderRadiusSM: 6 },
-        },
-      }}
-    >
-      <div className="app-frame">
-        <header className="topbar">
-          <div className="brand">
-            <ProductMark />
-            <div className="brand-copy">
-              <strong>CarePulse</strong>
-              <span>证据驱动客服 Copilot</span>
-            </div>
-            <Tag className="mvp-tag">EVAL BUILD</Tag>
-          </div>
-
-          <Segmented
-            className="view-switch"
-            value={view}
-            onChange={(value) => setView(value as ViewKey)}
-            options={[
-              {
-                value: "workbench",
-                label: (
-                  <span>
-                    <MessageOutlined /> 客服工作台
-                  </span>
-                ),
-              },
-              {
-                value: "dashboard",
-                label: (
-                  <span>
-                    <DashboardOutlined /> 风险看板
-                  </span>
-                ),
-              },
-              {
-                value: "evaluation",
-                label: (
-                  <span>
-                    <ExperimentOutlined /> 评测证据
-                  </span>
-                ),
-              },
-            ]}
-          />
-
-          <div className="top-actions">
-            <div className="system-health">
-              <span />
-              运行证据可核验
-            </div>
-            <Tooltip title={`当前授权范围：待审批 ${pendingApprovals} 项`}>
-              <Badge count={pendingApprovals} size="small">
-                <Button shape="circle" icon={<AuditOutlined />} aria-label="审批通知" />
-              </Badge>
-            </Tooltip>
-            <div className="operator">
-              <Avatar size={34}>{avatarText}</Avatar>
-              <div>
-                <b>{displayName}</b>
-                <span>{roleLabel[principal?.role ?? "AGENT"]}</span>
-              </div>
-            </div>
+    <ConfigProvider theme={{ token: { colorPrimary: "#534ab7", colorSuccess: "#0f6e56", colorWarning: "#ba7517", colorError: "#a32d2d", borderRadius: 10, fontFamily: 'Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }, components: { Button: { fontWeight: 650, controlHeight: 36 }, Tag: { borderRadiusSM: 6 } } }}>
+      <div className="lumisense-app">
+        <header className="app-header">
+          <div className="brand-lockup"><LumiMark /><div><strong>LumiSense <em>感光</em></strong><span>欧莱雅美妆 AI 共情管家</span></div><Tag>V2.0</Tag></div>
+          <nav className="primary-nav" aria-label="产品主导航">
+            {(Object.keys(viewLabels) as LumiView[]).map((key) => {
+              const allowed = roleViews[role].includes(key);
+              return <Tooltip key={key} title={allowed ? '' : `${profile.label}无此页面权限`}><button className={view === key ? 'active' : ''} disabled={!allowed} onClick={() => setView(key)}>{viewLabels[key].icon}<span>{viewLabels[key].label}</span>{!allowed && <LockOutlined />}</button></Tooltip>;
+            })}
+          </nav>
+          <div className="header-actions">
+            <div className="north-star"><span>北极星</span><b>AI-Assisted FCR</b><em>目标 +15pp</em></div>
+            <Select value={role} onChange={changeRole} popupMatchSelectWidth={250} className="role-select" options={(Object.keys(roleProfiles) as LumiRole[]).map((key) => ({ value: key, label: `${roleProfiles[key].name} · ${roleProfiles[key].label} ${roleProfiles[key].level}` }))} />
+            <div className="active-user"><Avatar size={34} icon={<UserOutlined />} /><span><b>{profile.name}</b><small>{profile.label} · {profile.level}</small></span></div>
           </div>
         </header>
-
-        {view === "workbench" ? (
-          <Workbench
-            key={`${scenario}-${customInput?.conversation_id ?? "preset"}`}
-            scenarioKey={scenario}
-            onScenario={setScenario}
-            principal={principal}
-            customInput={customInput}
-            onCustomRun={(input) => {
-              setCustomInput(input);
-              setScenario("challenge");
-            }}
-          />
-        ) : view === "dashboard" ? (
-          <Dashboard principal={principal} />
-        ) : (
-          <EvaluationEvidence />
-        )}
+        <div className="philosophy-rail"><span className="active"><i>01</i>SENSE 感知</span><ArrowRightOutlined /><span><i>02</i>RESPOND 回应</span><ArrowRightOutlined /><span><i>03</i>RESOLVE 解决</span><ArrowRightOutlined /><span><i>04</i>MEASURE 衡量</span><em>共情不是话术，是可验证的工作流</em></div>
+        {view === 'workspace' ? <Workspace role={role} /> : view === 'risk' ? <RiskDashboard role={role} /> : view === 'growth' ? <GrowthView role={role} /> : <EvolutionView role={role} />}
       </div>
     </ConfigProvider>
   );

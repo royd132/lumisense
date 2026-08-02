@@ -128,6 +128,130 @@ test("competition evaluation recomputes the 60-case report", async () => {
   assert.ok(report.slices.every((item) => item.passed === item.cases));
 });
 
+test("LumiSense bootstrap exposes PRD product strategy and cold-start scope", async () => {
+  const response = await request("/api/v1/lumisense/bootstrap", {
+    headers: authHeaders(),
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.code, 0);
+  assert.equal(payload.data.product.name, "LumiSense 感光 v2.0");
+  assert.deepEqual(payload.data.product.philosophy, [
+    "Sense",
+    "Respond",
+    "Resolve",
+    "Measure",
+  ]);
+  assert.equal(payload.data.scenario_count, 5);
+  assert.equal(payload.data.cold_start.length, 6);
+  assert.equal(payload.data.knowledge.beauty_scenarios, 12);
+});
+
+test("LumiSense risk dashboard enforces RBAC and masks viewer data", async () => {
+  const forbidden = await request("/api/v1/risk/dashboard", {
+    headers: authHeaders(),
+  });
+  assert.equal(forbidden.status, 403);
+
+  const viewer = await request("/api/v1/risk/dashboard", {
+    headers: { "x-agent-id": "viewer01@demo.test", "x-agent-role": "VIEWER" },
+  });
+  assert.equal(viewer.status, 200);
+  const payload = await viewer.json();
+  assert.equal(payload.data.totals.active_alerts, 30);
+  assert.ok(
+    payload.data.active_alerts.every((item) => item.detail.includes("脱敏")),
+  );
+});
+
+test("LumiSense feedback enters the human-review queue with an audit record", async () => {
+  const response = await request("/api/v1/subtext/feedback", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-agent-id": "junior01@demo.test",
+      "x-agent-role": "AGENT_JUNIOR",
+    },
+    body: JSON.stringify({
+      conversation_id: "demo_001",
+      feedback_type: "inaccurate",
+      feedback_text: "潜台词应更聚焦安全感",
+    }),
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.data.training_status, "PENDING_HUMAN_REVIEW");
+  assert.equal(payload.data.audited, true);
+
+  const feedback = await db
+    .prepare("SELECT user_role, training_status FROM lumisense_feedback WHERE id = ?")
+    .bind(payload.data.feedback_id)
+    .first();
+  assert.equal(feedback.user_role, "AGENT_JUNIOR");
+  assert.equal(feedback.training_status, "PENDING_HUMAN_REVIEW");
+  const audit = await db
+    .prepare("SELECT user_role, action FROM audit_log WHERE trace_id = ?")
+    .bind(payload.data.trace_id)
+    .first();
+  assert.equal(audit.user_role, "AGENT_JUNIOR");
+  assert.equal(audit.action, "feedback.create");
+
+  const exportResponse = await request("/api/v1/eval/training-data?limit=10", {
+    headers: { "x-agent-id": "admin01@demo.test", "x-agent-role": "ADMIN" },
+  });
+  assert.equal(exportResponse.status, 200);
+  const exported = await exportResponse.json();
+  assert.ok(exported.data.items.some((item) => item.id === payload.data.feedback_id));
+});
+
+test("only a trusted admin can update a brand persona and the change is audited", async () => {
+  const denied = await request("/api/v1/admin/brand", {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      "x-agent-id": "sup01@demo.test",
+      "x-agent-role": "SUPERVISOR",
+    },
+    body: JSON.stringify({
+      brand: "lancome",
+      keywords: ["优雅", "法式"],
+      style: "精致、有温度",
+      forbidden_words: ["亲"],
+    }),
+  });
+  assert.equal(denied.status, 403);
+
+  const saved = await request("/api/v1/admin/brand", {
+    method: "PUT",
+    headers: {
+      "content-type": "application/json",
+      "x-agent-id": "admin01@demo.test",
+      "x-agent-role": "ADMIN",
+    },
+    body: JSON.stringify({
+      brand: "lancome",
+      keywords: ["优雅", "法式", "女性力量"],
+      style: "精致、有温度",
+      forbidden_words: ["亲", "宝宝", "家人们"],
+    }),
+  });
+  assert.equal(saved.status, 200);
+  const payload = await saved.json();
+  assert.equal(payload.data.value.style, "精致、有温度");
+
+  const config = await db
+    .prepare("SELECT updated_role FROM lumisense_config WHERE config_key = ?")
+    .bind("brand_persona:lancome")
+    .first();
+  assert.equal(config.updated_role, "ADMIN");
+  const audit = await db
+    .prepare("SELECT action, user_role FROM audit_log WHERE trace_id = ?")
+    .bind(payload.data.trace_id)
+    .first();
+  assert.equal(audit.action, "config.update");
+  assert.equal(audit.user_role, "ADMIN");
+});
+
 test("review failure cannot be approved and never recommends actions", async () => {
   const accepted = await startRun({ order_id: "ORDER_UNKNOWN" });
   const result = await completedRun(accepted.run_id);

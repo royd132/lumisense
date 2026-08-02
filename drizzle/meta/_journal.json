@@ -22,6 +22,20 @@
       "when": 1785428435079,
       "tag": "0002_low_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1785681073162,
+      "tag": "0003_lush_nextwave",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785681954383,
+      "tag": "0004_abnormal_brother_voodoo",
+      "breakpoints": true
     }
   ]
 }

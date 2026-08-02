@@ -24,24 +24,23 @@ async function render() {
   return buffered;
 }
 
-test("server-renders the CarePulse workbench with an honest runtime mode", async () => {
+test("server-renders the LumiSense empathy workbench with an honest runtime mode", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>CarePulse \| 证据驱动客服 Copilot<\/title>/i);
-  assert.match(html, /CarePulse/);
-  assert.match(html, /消费者问题理解/);
-  assert.match(html, /证据包/);
+  assert.match(html, /<title>LumiSense 感光 \| 欧莱雅美妆 AI 共情管家<\/title>/i);
+  assert.match(html, /LumiSense/);
+  assert.match(html, /潜台词 X 光片/);
+  assert.match(html, /未来 3 轮情绪预言/);
+  assert.match(html, /三轴匹配/);
   assert.match(html, /JUDGE CHALLENGE/);
   assert.match(html, /现场分析/);
-  assert.match(html, /VERIFYING MODEL/);
-  assert.match(html, /评测证据/);
-  assert.match(html, /EVAL BUILD/);
-  assert.match(html, /正在连接 Harness/);
+  assert.match(html, /SAFE FALLBACK/);
+  assert.match(html, /风险预警/);
+  assert.match(html, /V2.0/);
   assert.match(html, /正在验证运行时/);
-  assert.doesNotMatch(html, /Harness 在线/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
 
@@ -58,6 +57,7 @@ test("keeps REST, SSE and explicit action approval in the client contract", asyn
   assert.match(api, /approved_action_ids/);
   assert.doesNotMatch(api, /X-Agent-(?:Id|Role)/);
   assert.match(page, /type="checkbox"/);
-  assert.match(page, /演示回退/);
+  assert.match(page, /确定性安全回退/);
+  assert.match(page, /submitLumiSenseFeedback/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@tanstack\/react-query/);
 });

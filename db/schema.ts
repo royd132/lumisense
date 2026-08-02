@@ -166,3 +166,57 @@ export const userRoles = sqliteTable("user_roles", {
   role: text("role").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const lumisenseFeedback = sqliteTable(
+  "lumisense_feedback",
+  {
+    id: text("id").primaryKey(),
+    userEmail: text("user_email").notNull(),
+    userRole: text("user_role").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    feedbackType: text("feedback_type").notNull(),
+    verdict: text("verdict").notNull(),
+    detail: text("detail"),
+    trainingStatus: text("training_status").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("lumisense_feedback_conversation_idx").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+    index("lumisense_feedback_training_idx").on(
+      table.trainingStatus,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const auditLog = sqliteTable(
+  "audit_log",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    userEmail: text("user_email").notNull(),
+    userRole: text("user_role").notNull(),
+    action: text("action").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id").notNull(),
+    beforeStateJson: text("before_state_json"),
+    afterStateJson: text("after_state_json"),
+    traceId: text("trace_id").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    index("audit_log_tenant_created_idx").on(table.tenantId, table.createdAt),
+    index("audit_log_user_created_idx").on(table.userEmail, table.createdAt),
+  ],
+);
+
+export const lumisenseConfig = sqliteTable("lumisense_config", {
+  configKey: text("config_key").primaryKey(),
+  valueJson: text("value_json").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedRole: text("updated_role").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

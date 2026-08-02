@@ -9,10 +9,10 @@ export async function generateMetadata(): Promise<Metadata> {
     requestHeaders.get("x-forwarded-proto") ??
     (host?.startsWith("localhost") ? "http" : "https");
   const metadataBase = new URL(`${protocol}://${host ?? "localhost"}`);
-  const title = "CarePulse | 证据驱动客服 Copilot";
+  const title = "LumiSense 感光 | 欧莱雅美妆 AI 共情管家";
   const description =
-    "以证据、风险信号和人工审批为核心的受控消费者共情客服 Copilot。";
-  const image = new URL("/og-competition.png", metadataBase).toString();
+    "用数据让 AI 从辅助回答升级为辅助共情：潜台词翻译、情绪预言、共情指数与风险预警一体化工作台。";
+  const image = new URL("/og.png", metadataBase).toString();
   return {
     metadataBase,
     title,

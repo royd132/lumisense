@@ -265,3 +265,67 @@ export async function getEvaluationReport() {
     }),
   );
 }
+
+export async function submitLumiSenseFeedback(input: {
+  conversationId: string;
+  kind: "subtext" | "prediction";
+  verdict: "accurate" | "partially" | "inaccurate";
+  detail?: string;
+}) {
+  const endpoint =
+    input.kind === "subtext"
+      ? "/api/v1/subtext/feedback"
+      : "/api/v1/emotion/feedback";
+  const body =
+    input.kind === "subtext"
+      ? {
+          conversation_id: input.conversationId,
+          feedback_type: input.verdict,
+          feedback_text: input.detail,
+        }
+      : {
+          conversation_id: input.conversationId,
+          verdict: input.verdict,
+          detail: input.detail,
+        };
+  return json<{
+    code: number;
+    message: string;
+    data: {
+      feedback_id: string;
+      trace_id: string;
+      training_status: string;
+      audited: boolean;
+    };
+  }>(
+    await fetch(`${CAREPULSE_API_URL}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+export async function updateBrandPersona(input: {
+  brand: string;
+  keywords: string[];
+  style: string;
+  forbiddenWords: string[];
+}) {
+  return json<{
+    code: number;
+    message: string;
+    data: { trace_id: string; updated_at: string };
+  }>(
+    await fetch(`${CAREPULSE_API_URL}/api/v1/admin/brand`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        brand: input.brand,
+        keywords: input.keywords,
+        style: input.style,
+        forbidden_words: input.forbiddenWords,
+      }),
+    }),
+  );
+}
