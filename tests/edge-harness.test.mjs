@@ -233,6 +233,14 @@ test("LumiSense risk dashboard enforces RBAC and masks viewer data", async () =>
   assert.ok(
     payload.data.active_alerts.every((item) => item.detail.includes("脱敏")),
   );
+  assert.ok(
+    payload.data.consumer_risk_queue.every(
+      (item) => item.consumer.startsWith("消费者 ") && item.evidence.includes("脱敏"),
+    ),
+  );
+  assert.equal(payload.data.risk_type_breakdown.length, 5);
+  assert.equal(payload.data.sla.overdue_promises, 7);
+  assert.equal("team_empathy_ranking" in payload.data, false);
 });
 
 test("LumiSense feedback enters the human-review queue with an audit record", async () => {

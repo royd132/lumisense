@@ -2002,6 +2002,7 @@ textarea:focus-visible,
 
 .kpi-strip em.green { color: var(--empathy); }
 .kpi-strip em.yellow { color: var(--warning); }
+.kpi-strip em.red { color: var(--danger); }
 
 .dashboard-grid {
   display: grid;
@@ -2012,8 +2013,8 @@ textarea:focus-visible,
   grid-template-columns: 0.9fr 1.1fr;
 }
 
-.dashboard-grid.secondary {
-  grid-template-columns: 1fr 1fr 0.85fr;
+.dashboard-grid.consumer-risk-grid {
+  grid-template-columns: minmax(0, 1.75fr) minmax(300px, 0.85fr);
   margin-top: 14px;
 }
 
@@ -2039,7 +2040,6 @@ textarea:focus-visible,
 }
 
 .alert-stream,
-.ranking-list,
 .badcase-list,
 .roadmap-list {
   display: flex;
@@ -2071,7 +2071,6 @@ textarea:focus-visible,
 }
 
 .alert-item > span,
-.ranking-list > div > span,
 .badcase-list > div > span {
   display: flex;
   min-width: 0;
@@ -2079,100 +2078,195 @@ textarea:focus-visible,
 }
 
 .alert-item b,
-.ranking-list b,
 .badcase-list b {
   font-size: 10px;
 }
 
 .alert-item small,
-.ranking-list small,
 .badcase-list small {
   margin-top: 3px;
   color: #87818e;
   font-size: 8px;
 }
 
-.ranking-list > div {
+.consumer-risk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.consumer-risk-row {
   display: grid;
-  grid-template-columns: 24px 30px 1fr auto 32px;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(220px, 1.7fr) 90px 86px 58px auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid #e7e3ea;
+  border-left: 3px solid var(--warning);
+  border-radius: 10px;
+  background: #fcfbfd;
+}
+
+.consumer-risk-row.red {
+  border-left-color: var(--danger);
+  background: #fffafa;
+}
+
+.risk-consumer {
+  display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 0;
-  border-bottom: 1px solid #efecf2;
 }
 
-.rank {
-  color: #9b95a5;
-  font-size: 10px;
-  font-weight: 800;
-}
-
-.ranking-list strong {
-  color: var(--purple-dark);
-  font-size: 16px;
-}
-
-.ranking-list em {
-  font-size: 9px;
-  font-style: normal;
-  font-weight: 700;
-}
-
-.ranking-list em.up { color: var(--empathy); }
-.ranking-list em.down { color: var(--danger); }
-
-.funnel {
+.risk-consumer > span,
+.risk-signal,
+.risk-trajectory,
+.risk-sla,
+.risk-score {
   display: flex;
-  align-items: center;
+  min-width: 0;
   flex-direction: column;
-  gap: 5px;
-  margin: 12px 0;
+  gap: 2px;
 }
 
-.funnel > div {
-  display: flex;
-  justify-content: space-between;
-  width: var(--funnel-width);
-  min-width: 35%;
-  padding: 8px 10px;
-  border-radius: 6px;
-  color: #fff;
-  background: var(--purple);
+.risk-consumer b,
+.risk-signal b,
+.risk-trajectory b,
+.risk-sla b,
+.risk-score b {
+  font-size: 10px;
 }
 
-.funnel > div:nth-child(2) { background: #6f66c4; }
-.funnel > div:nth-child(3) { background: #388c75; }
-.funnel > div:nth-child(4) { background: var(--empathy); }
-
-.funnel span,
-.funnel b {
-  font-size: 9px;
+.risk-consumer small,
+.risk-signal small,
+.risk-trajectory small,
+.risk-sla small {
+  overflow: hidden;
+  color: #88818f;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.funnel-board p,
-.fatigue-board p,
-.cold-start-card > p {
-  color: #777081;
-  font-size: 9px;
+.risk-signal > span,
+.risk-trajectory > span,
+.risk-sla > span,
+.risk-score > span {
+  color: #9a94a0;
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
-.fatigue-score {
-  margin: 20px 0 12px;
+.risk-trajectory b,
+.risk-sla b {
+  color: var(--danger);
 }
 
-.fatigue-score span {
-  color: #7f7987;
-  font-size: 9px;
+.risk-score {
+  align-items: center;
 }
 
-.fatigue-score b {
-  float: right;
-  color: var(--warning);
+.risk-score b {
+  color: var(--danger);
   font-size: 22px;
 }
 
-.fatigue-board .ant-btn {
-  margin-top: 18px;
+.risk-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 16px 0 18px;
+}
+
+.risk-breakdown > div > span {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.risk-breakdown b,
+.risk-breakdown em {
+  font-size: 9px;
+  font-style: normal;
+}
+
+.risk-breakdown em {
+  color: #8c8592;
+}
+
+.risk-breakdown i {
+  display: block;
+  overflow: hidden;
+  height: 7px;
+  border-radius: 99px;
+  background: #eeebf1;
+}
+
+.risk-breakdown u {
+  display: block;
+  width: var(--risk-width);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--danger);
+}
+
+.risk-breakdown u.amber { background: var(--warning); }
+.risk-breakdown u.purple { background: var(--purple); }
+.risk-breakdown u.orange { background: #d4622b; }
+.risk-breakdown u.green { background: var(--empathy); }
+
+.risk-response-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding-top: 14px;
+  border-top: 1px solid #ece8ef;
+}
+
+.risk-response-summary > div {
+  padding: 9px;
+  border-radius: 8px;
+  background: #f7f5f9;
+  text-align: center;
+}
+
+.risk-response-summary span {
+  display: block;
+  min-height: 22px;
+  color: #817a88;
+  font-size: 8px;
+}
+
+.risk-response-summary b {
+  color: var(--danger);
+  font-size: 18px;
+}
+
+.risk-principle {
+  display: flex;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid #d6e8e1;
+  border-radius: 9px;
+  color: var(--empathy);
+  background: #f2faf7;
+}
+
+.risk-principle span {
+  display: flex;
+  flex-direction: column;
+}
+
+.risk-principle b {
+  font-size: 9px;
+}
+
+.risk-principle small,
+.cold-start-card > p {
+  color: #777081;
+  font-size: 8px;
 }
 
 .growth-hero {
@@ -2771,12 +2865,11 @@ textarea:focus-visible,
     max-height: 760px;
   }
 
-  .dashboard-grid.secondary,
+  .dashboard-grid.consumer-risk-grid,
   .growth-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
   }
 
-  .fatigue-board,
   .coaching-card {
     grid-column: 1 / -1;
   }
@@ -2966,16 +3059,27 @@ textarea:focus-visible,
   }
 
   .dashboard-grid.primary,
-  .dashboard-grid.secondary,
+  .dashboard-grid.consumer-risk-grid,
   .growth-grid,
   .evolution-grid,
   .flywheel {
     grid-template-columns: 1fr;
   }
 
-  .fatigue-board,
   .coaching-card {
     grid-column: auto;
+  }
+
+  .consumer-risk-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .risk-signal {
+    grid-column: 1 / -1;
+  }
+
+  .risk-score {
+    align-items: flex-start;
   }
 
   .flywheel > div > .anticon {

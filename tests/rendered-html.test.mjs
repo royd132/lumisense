@@ -65,5 +65,8 @@ test("keeps REST, SSE and explicit action approval in the client contract", asyn
   assert.match(page, /api_key_not_configured/);
   assert.match(page, /submitLumiSenseFeedback/);
   assert.match(page, /getEvolutionSummary/);
+  assert.match(page, /消费者风险预警中心/);
+  assert.match(page, /高风险消费者处置队列/);
+  assert.doesNotMatch(page, /坐席疲劳预警/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@tanstack\/react-query/);
 });

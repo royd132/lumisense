@@ -1,8 +1,9 @@
 import { principalForRequest } from "../../../../lib/edge-auth";
 import {
+  consumerRiskCases,
   riskAlerts,
   riskMetrics,
-  teamRanking,
+  riskTypeBreakdown,
 } from "../../../../lib/lumisense-demo";
 
 const ALLOWED = new Set(["VIEWER", "SUPERVISOR", "RISK_MANAGER", "ADMIN"]);
@@ -41,10 +42,14 @@ export async function GET(request: Request) {
         ...item,
         detail: masked ? "会话 **** · 数据已脱敏" : item.detail,
       })),
-      team_empathy_ranking: teamRanking.map((item) => ({
+      consumer_risk_queue: consumerRiskCases.map((item, index) => ({
         ...item,
-        name: masked ? `坐席 ${item.id}` : item.name,
+        consumer: masked ? `消费者 ${index + 1}` : item.consumer,
+        evidence: masked ? "风险证据已脱敏" : item.evidence,
+        owner: masked ? "负责人已脱敏" : item.owner,
       })),
+      risk_type_breakdown: riskTypeBreakdown,
+      sla: { critical_response_within_30s: 83, awaiting_supervisor: 4, overdue_promises: 7 },
       totals: { active_alerts: 30, red: 6, yellow: 24 },
     },
   });

@@ -639,27 +639,34 @@ export const coldStartStats = [
 ];
 
 export const riskAlerts = [
-  { id: "AL-1024", level: "red", title: "过敏 · 恐慌 · 60s 未响应", detail: "小美 / demo_001", time: "刚刚", action: "立即接管" },
-  { id: "AL-1025", level: "red", title: "孕期禁忌成分命中", detail: "莉莉 / A 醇精华", time: "38s", action: "查看会话" },
-  { id: "AL-0998", level: "yellow", title: "坐席语言温度 52 → 38", detail: "坐席 #008 · 连续 11 个高危 case", time: "2m", action: "建议换班" },
-  { id: "AL-0984", level: "yellow", title: "负面情绪占比升至 11%", detail: "理肤泉服务组 · 近 15 分钟", time: "4m", action: "趋势分析" },
-  { id: "AL-0962", level: "yellow", title: "AI 建议采纳率环比下降 18%", detail: "新手组 · 可能需要模板复盘", time: "8m", action: "派发培训" },
+  { id: "AL-1024", level: "red", title: "产品安全 · 急性红肿 + 恐慌下坠", detail: "小美 / demo_001 · 证据 R1/R2/R4", time: "刚刚", action: "立即接管" },
+  { id: "AL-1025", level: "red", title: "成分禁忌 · 孕期命中 A 醇", detail: "莉莉 / demo_002 · 安全询问未解决", time: "38s", action: "查看会话" },
+  { id: "AL-1017", level: "red", title: "投诉升级 · 第 4 次联系且承诺逾期", detail: "林小姐 / demo_005 · 上次承诺已超 26h", time: "1m", action: "主管介入" },
+  { id: "AL-0998", level: "yellow", title: "舆情风险 · 提及小红书公开经历", detail: "张女士 / demo_008 · 传播倾向 86%", time: "2m", action: "风险处置" },
+  { id: "AL-0984", level: "yellow", title: "信任风险 · 正品质疑 + 高价值订单", detail: "周先生 / demo_011 · 订单 ¥1,680", time: "4m", action: "核验证据" },
 ];
 
-export const teamRanking = [
-  { name: "王资深", id: "#003", score: 91, trend: "+4", fatigue: "fresh" },
-  { name: "赵敏", id: "#007", score: 88, trend: "+2", fatigue: "normal" },
-  { name: "周妍", id: "#012", score: 85, trend: "+1", fatigue: "normal" },
-  { name: "陈新手", id: "#008", score: 58, trend: "-9", fatigue: "tired" },
-  { name: "刘洋", id: "#015", score: 52, trend: "-12", fatigue: "exhausted" },
+export const consumerRiskCases = [
+  { id: "CR-001", consumer: "小美", level: "red", type: "产品安全", score: 94, signal: "泛红、担心留疤，连续 3 轮情绪下降", evidence: "R1 明确红肿 · R2 自责 · R4 放弃沟通", trajectory: "68 → 32 → 15", contacts: 2, sla: "剩余 00:42", owner: "王资深", action: "立即接管" },
+  { id: "CR-005", consumer: "林小姐", level: "red", type: "流失 / 服务失信", score: 88, signal: "同一问题第 4 次联系，上次承诺已逾期", evidence: "历史工单 #392 · 承诺 24h 回复未兑现", trajectory: "61 → 40 → 18", contacts: 4, sla: "已超时 26m", owner: "待分配", action: "主管介入" },
+  { id: "CR-008", consumer: "张女士", level: "yellow", type: "舆情升级", score: 86, signal: "明确提及将经历发布到公开平台", evidence: "R6：我要把完整记录发到小红书", trajectory: "54 → 29 → 21", contacts: 3, sla: "剩余 04:18", owner: "赵敏", action: "启动预案" },
+  { id: "CR-002", consumer: "莉莉", level: "red", type: "成分安全", score: 91, signal: "孕期使用安全询问，产品证据命中 A 醇", evidence: "消费者孕期 · SKU 成分表包含视黄醇", trajectory: "72 → 55 → 43", contacts: 1, sla: "剩余 01:26", owner: "陈新手", action: "安全复核" },
 ];
 
 export const riskMetrics = [
-  { label: "负面情绪", value: 8, display: "8%", threshold: 15, tone: "green" },
-  { label: "升级率", value: 5, display: "5%", threshold: 12, tone: "green" },
-  { label: "高危响应", value: 75, display: "75s", threshold: 120, tone: "yellow" },
-  { label: "AI 采纳率", value: 72, display: "72%", threshold: 65, tone: "green" },
-  { label: "AHT", value: 3.8, display: "3.8m", threshold: 4.8, tone: "green" },
+  { label: "产品安全", value: 82, max: 100, display: "6 件", threshold: 70, tone: "red" },
+  { label: "情绪失控", value: 68, max: 100, display: "12 人", threshold: 60, tone: "yellow" },
+  { label: "流失倾向", value: 74, max: 100, display: "9 人", threshold: 65, tone: "red" },
+  { label: "投诉舆情", value: 55, max: 100, display: "4 件", threshold: 50, tone: "yellow" },
+  { label: "服务失信", value: 63, max: 100, display: "7 件", threshold: 55, tone: "yellow" },
+];
+
+export const riskTypeBreakdown = [
+  { label: "情绪恶化 / 流失", count: 9, percent: 30, tone: "red" },
+  { label: "服务失信 / 重复投诉", count: 7, percent: 23, tone: "amber" },
+  { label: "产品与成分安全", count: 6, percent: 20, tone: "purple" },
+  { label: "投诉舆情 / 合规", count: 4, percent: 14, tone: "orange" },
+  { label: "正品 / 隐私 / 交易信任", count: 4, percent: 13, tone: "green" },
 ];
 
 export const permissionMatrix = [
