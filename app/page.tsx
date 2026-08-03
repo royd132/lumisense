@@ -11,6 +11,7 @@ import {
   ExperimentOutlined,
   EyeOutlined,
   HeartOutlined,
+  HistoryOutlined,
   LockOutlined,
   MessageOutlined,
   ReloadOutlined,
@@ -280,11 +281,67 @@ function PerceptionCard({ insight }: { insight: LumiInsight }) {
   );
 }
 
+function ArchaeologyCard({ insight }: { insight: LumiInsight }) {
+  const archaeology = insight.archaeology;
+  const enoughEvidence = archaeology.turns.length >= 3 && archaeology.confidence >= 0.6;
+  return (
+    <article className="archaeology-card insight-card wow-card">
+      <div className="wow-ribbon">WOW 01</div>
+      <SectionHead
+        eyebrow="EMOTION ARCHAEOLOGIST · 多轮时序因果诊断"
+        title="情绪考古师"
+        extra={<span className={`archaeology-confidence ${enoughEvidence ? "ready" : "insufficient"}`}>{enoughEvidence ? `诊断置信度 ${Math.round(archaeology.confidence * 100)}%` : "证据不足 · 拒绝伪因果"}</span>}
+      />
+      <div className="archaeology-layout">
+        <section className="archaeology-timeline" aria-label="多轮会话情绪时间线">
+          <div className="archaeology-label"><HistoryOutlined /> 对话时间线回溯 <span>输入：{archaeology.turns.length} 轮会话</span></div>
+          <div className="turn-stack">
+            {archaeology.turns.map((turn) => (
+              <div key={turn.round} className={`archaeology-turn ${turn.state}`}>
+                <span className="turn-round">{turn.round}</span>
+                <span className="turn-copy"><b>{turn.speaker}</b><em>“{turn.quote}”</em></span>
+                <strong>{turn.score}</strong>
+                {turn.round === archaeology.turningPoint.round && <i className="turning-badge">情绪转折</i>}
+              </div>
+            ))}
+          </div>
+          {enoughEvidence && (
+            <div className="turning-point-callout">
+              <span>{archaeology.turningPoint.round}</span>
+              <p><b>{archaeology.turningPoint.from} → {archaeology.turningPoint.to}</b>{archaeology.turningPoint.trigger}</p>
+            </div>
+          )}
+        </section>
+        <section className="causal-diagnosis">
+          <div className="diagnosis-block root-cause">
+            <span>病因诊断</span>
+            <p>{archaeology.rootCause}</p>
+          </div>
+          <div className="causal-chain" aria-label="会话因果链">
+            {archaeology.causalChain.map((item, index) => (
+              <span key={`${item}-${index}`}>{item}{index < archaeology.causalChain.length - 1 && <ArrowRightOutlined />}</span>
+            ))}
+          </div>
+          <div className="diagnosis-block prescription">
+            <span>处方建议</span>
+            <p><b>不要：</b>{archaeology.avoid}</p>
+            <p><b>要做：</b>{archaeology.prescription}</p>
+          </div>
+          <div className="evidence-strip">
+            <span>证据锚点</span>
+            {archaeology.evidenceRounds.map((round) => <b key={round}>{round}</b>)}
+            <em>基于整段会话回溯</em>
+          </div>
+        </section>
+      </div>
+    </article>
+  );
+}
+
 function SubtextCard({ insight, onFeedback }: { insight: LumiInsight; onFeedback: (verdict: "accurate" | "inaccurate") => void }) {
   return (
-    <article className="xray-card insight-card wow-card">
-      <div className="wow-ribbon">WOW 01</div>
-      <SectionHead eyebrow="SUBTEXT TRANSLATOR" title="潜台词 X 光片" extra={<span className="confidence">置信度 {Math.round(insight.subtext.confidence * 100)}%</span>} />
+    <article className="xray-card insight-card">
+      <SectionHead eyebrow="REAL-TIME ASSIST · 单轮辅助" title="潜台词摘要" extra={<span className="confidence">辅助置信度 {Math.round(insight.subtext.confidence * 100)}%</span>} />
       <div className="xray-stack">
         <div><span>表面语义</span><p>{insight.subtext.surface}</p></div>
         <div><span>真实情绪</span><p>{insight.subtext.emotion}</p></div>
@@ -292,7 +349,7 @@ function SubtextCard({ insight, onFeedback }: { insight: LumiInsight; onFeedback
         <div><span>应对方向</span><p>{insight.subtext.strategy}</p></div>
       </div>
       <div className="feedback-row">
-        <span>这次翻译准确吗？</span>
+        <span>辅助判断准确吗？</span>
         <Button size="small" icon={<CheckOutlined />} onClick={() => onFeedback("accurate")}>准确</Button>
         <Button size="small" onClick={() => onFeedback("inaccurate")}>需修正</Button>
       </div>
@@ -443,11 +500,12 @@ function InsightPanel({ insight, running, activeNode, onUse, onFeedback, selecte
   return (
     <aside className="insight-panel">
       <div className="insight-topline">
-        <div><LumiMark /><span><b>LumiSense Intelligence</b><small>Sense → Respond → Resolve → Measure</small></span></div>
+        <div><LumiMark /><span><b>LumiSense Intelligence</b><small>Archaeology 回溯 → Prophet 预测 → Human 决策</small></span></div>
         <RuntimeProof insight={insight} running={running} activeNode={activeNode} />
       </div>
       <div className="insight-scroll">
         <PerceptionCard insight={insight} />
+        <ArchaeologyCard insight={insight} />
         <SubtextCard insight={insight} onFeedback={(verdict) => onFeedback("subtext", verdict)} />
         <ProphetCard insight={insight} onApply={() => onUse(insight.scripts[0].text)} onFeedback={(verdict) => onFeedback("prediction", verdict)} />
         <ScriptsCard insight={insight} onUse={onUse} />
@@ -460,12 +518,12 @@ function InsightPanel({ insight, running, activeNode, onUse, onFeedback, selecte
 }
 
 function ChallengeBar({ onRun, running }: { onRun: (input: RunInput) => void; running: boolean }) {
-  const [value, setValue] = useState("算了不说了，反正你们家东西就那样。我已经用了两周，一点效果都没有。");
+  const [value, setValue] = useState("消费者：用了两周一点变化都没有，上次客服说再等等。\n客服：抗老产品需要坚持使用，建议继续观察。\n消费者：上次也是这么说，你们到底解决过吗？\n客服：我可以再给您介绍一下产品功效。\n消费者：算了，我觉得就是白花钱。\n消费者：你们宣传是不是都只是话术？");
   return (
     <section className="challenge-bar">
-      <div className="challenge-label"><span>JUDGE CHALLENGE</span><b>输入任意美妆客服原话</b><small>同一条 Harness 链路实时运行</small></div>
-      <textarea value={value} onChange={(event) => setValue(event.target.value)} aria-label="评委开放输入" />
-      <Button type="primary" loading={running} icon={<ThunderboltFilled />} onClick={() => onRun({ conversation_id: `judge_${Date.now()}`, customer_id: "judge_consumer", text: value })}>现场分析</Button>
+      <div className="challenge-label"><span>JUDGE CHALLENGE · MULTI-TURN</span><b>粘贴 3 轮以上完整会话</b><small>按“消费者：/ 客服：”分行，运行时序因果诊断</small></div>
+      <textarea value={value} onChange={(event) => setValue(event.target.value)} aria-label="评委多轮会话输入" />
+      <Button type="primary" loading={running} icon={<ThunderboltFilled />} onClick={() => onRun({ conversation_id: `judge_${Date.now()}`, customer_id: "judge_consumer", text: value })}>运行时序诊断</Button>
     </section>
   );
 }

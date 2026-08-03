@@ -11,7 +11,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const metadataBase = new URL(`${protocol}://${host ?? "localhost"}`);
   const title = "LumiSense 感光 | 欧莱雅美妆 AI 共情管家";
   const description =
-    "用数据让 AI 从辅助回答升级为辅助共情：潜台词翻译、情绪预言、共情指数与风险预警一体化工作台。";
+    "用多轮时序因果分析让 AI 从辅助回答升级为辅助共情：情绪考古、未来预测、共情指数与风险预警一体化工作台。";
   const image = new URL("/og.png", metadataBase).toString();
   return {
     metadataBase,

@@ -328,7 +328,7 @@ textarea:focus-visible,
   grid-template-columns: 245px 1fr auto;
   align-items: center;
   gap: 14px;
-  min-height: 74px;
+  min-height: 108px;
   padding: 10px 24px;
   color: #fff;
   background: var(--purple-dark);
@@ -364,7 +364,7 @@ textarea:focus-visible,
 
 .challenge-bar textarea {
   width: 100%;
-  height: 48px;
+  height: 78px;
   padding: 8px 11px;
   resize: none;
   border: 1px solid #746cac;
@@ -971,6 +971,7 @@ textarea:focus-visible,
 }
 
 .sense-card,
+.archaeology-card,
 .scripts-card,
 .harness-card {
   grid-column: 1 / -1;
@@ -1058,6 +1059,254 @@ textarea:focus-visible,
   font-size: 8px;
   font-weight: 900;
   letter-spacing: 0.8px;
+}
+
+.archaeology-card {
+  padding: 15px;
+  border-color: #aaa3e5;
+  background:
+    radial-gradient(circle at 85% 5%, rgba(83, 74, 183, 0.09), transparent 34%),
+    #fff;
+}
+
+.archaeology-card .section-head h2 {
+  color: var(--purple-dark);
+  font-size: 17px;
+}
+
+.archaeology-confidence {
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.archaeology-confidence.ready {
+  color: var(--empathy);
+  background: var(--empathy-soft);
+}
+
+.archaeology-confidence.insufficient {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.archaeology-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 12px;
+}
+
+.archaeology-timeline,
+.causal-diagnosis {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e0dcef;
+  border-radius: 10px;
+  background: rgba(250, 249, 253, 0.82);
+}
+
+.archaeology-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--purple-dark);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.archaeology-label span {
+  margin-left: auto;
+  color: #8b859a;
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.turn-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.archaeology-turn {
+  position: relative;
+  display: grid;
+  grid-template-columns: 27px minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid #d9d5e8;
+  border-left: 3px solid #aaa3bd;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.archaeology-turn.friction { border-left-color: var(--warning); background: #fffaf1; }
+.archaeology-turn.turning { border-color: #7770da; border-left-width: 4px; background: #f1efff; }
+.archaeology-turn.escalation { border-left-color: var(--danger); background: #fff4f2; }
+.archaeology-turn.repair { border-left-color: var(--empathy); background: #f0faf6; }
+
+.turn-round {
+  color: #716a83;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.turn-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.turn-copy b {
+  color: #7f798c;
+  font-size: 7px;
+}
+
+.turn-copy em {
+  overflow: hidden;
+  color: #373242;
+  font-size: 9px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archaeology-turn > strong {
+  color: var(--purple);
+  text-align: right;
+  font-size: 10px;
+}
+
+.turning-badge {
+  position: absolute;
+  right: 4px;
+  bottom: -8px;
+  z-index: 2;
+  padding: 2px 5px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--purple);
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.turning-point-callout {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--purple);
+}
+
+.turning-point-callout > span {
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.turning-point-callout p {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  margin: 0;
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.turning-point-callout b {
+  font-size: 10px;
+}
+
+.causal-diagnosis {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diagnosis-block {
+  padding: 9px 10px;
+  border-radius: 9px;
+}
+
+.diagnosis-block > span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+}
+
+.diagnosis-block p {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.root-cause {
+  color: #40387d;
+  background: #e9e6ff;
+}
+
+.prescription {
+  color: #175f4d;
+  background: #e6f6f0;
+}
+
+.prescription p + p {
+  margin-top: 4px;
+}
+
+.causal-chain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.causal-chain span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #6c6579;
+  font-size: 7px;
+  font-weight: 700;
+}
+
+.causal-chain .anticon {
+  color: #aaa3bd;
+  font-size: 7px;
+}
+
+.evidence-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 7px;
+  border-top: 1px solid #ded9e9;
+  color: #8a8495;
+  font-size: 7px;
+}
+
+.evidence-strip b {
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--purple);
+  background: #ebe8fb;
+}
+
+.evidence-strip em {
+  margin-left: auto;
+  font-style: normal;
 }
 
 .confidence,
@@ -2356,9 +2605,14 @@ textarea:focus-visible,
   }
 
   .sense-card,
+  .archaeology-card,
   .scripts-card,
   .harness-card {
     grid-column: auto;
+  }
+
+  .archaeology-layout {
+    grid-template-columns: 1fr;
   }
 
   .script-list,

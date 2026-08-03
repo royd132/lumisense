@@ -32,6 +32,14 @@ export type ProphetPath = {
   tone: "danger" | "warning" | "success";
 };
 
+export type ArchaeologyTurn = {
+  round: string;
+  speaker: "消费者" | "客服";
+  quote: string;
+  score: number;
+  state: "stable" | "friction" | "turning" | "escalation" | "repair";
+};
+
 export type LumiInsight = {
   scenarioKey: LumiScenarioKey;
   consumer: {
@@ -61,6 +69,21 @@ export type LumiInsight = {
     hidden: string;
     strategy: string;
     confidence: number;
+  };
+  archaeology: {
+    turns: ArchaeologyTurn[];
+    turningPoint: {
+      round: string;
+      from: number;
+      to: number;
+      trigger: string;
+    };
+    rootCause: string;
+    causalChain: string[];
+    avoid: string;
+    prescription: string;
+    confidence: number;
+    evidenceRounds: string[];
   };
   observed: number[];
   paths: ProphetPath[];
@@ -148,7 +171,8 @@ const previewRuntime: ApiAnalysis["runtime"] = {
 
 const baseTrace: LumiInsight["trace"] = [
   { node: "Sense / ingestion", detail: "上下文脱敏、画像与最近会话装载", latency: 42, state: "done" },
-  { node: "Subtext fork", detail: "四层潜台词翻译完成", latency: 186, state: "done" },
+  { node: "Timeline align", detail: "多轮发言、情绪分与历史事件完成时间对齐", latency: 82, state: "done" },
+  { node: "Causal graph", detail: "转折点定位、反事实检验与根因链生成", latency: 186, state: "done" },
   { node: "Risk fork", detail: "情绪拐点与硬规则并行检查", latency: 13, state: "warn" },
   { node: "Knowledge fork", detail: "成分禁忌、品牌人设与历史证据召回", latency: 158, state: "done" },
   { node: "Emotion prophet", detail: "未来三轮 A/B/C 路径计算完成", latency: 28, state: "done" },
@@ -196,6 +220,21 @@ export const scenarios: Record<Exclude<LumiScenarioKey, "challenge">, LumiInsigh
       hidden: "担心皮肤受损又觉得没有被认真对待，正在考虑公开吐槽",
       strategy: "先承认恐慌与自责，再给安全动作和明确人工升级",
       confidence: 0.92,
+    },
+    archaeology: {
+      turns: [
+        { round: "R1", speaker: "消费者", quote: "用了精华脸全红了怎么办", score: 68, state: "stable" },
+        { round: "R2", speaker: "消费者", quote: "会不会留疤，是不是我用错了", score: 32, state: "turning" },
+        { round: "R3", speaker: "客服", quote: "正在核对，请先不要继续使用", score: 35, state: "friction" },
+        { round: "R4", speaker: "消费者", quote: "算了不说了，反正就那样", score: 15, state: "escalation" },
+      ],
+      turningPoint: { round: "R2", from: 68, to: 32, trigger: "安全担忧没有被即时命名，消费者转向自责" },
+      rootCause: "真正根因是安全感与被重视感同时断裂，而非产品功效解释不足。",
+      causalChain: ["急性泛红", "担心留疤", "客服回应延迟", "自责转失望", "放弃沟通"],
+      avoid: "继续解释产品功效，或把症状归因于消费者用法。",
+      prescription: "先明确“这不是您的错”，立即给停用动作、升级节点和下一次跟进时间。",
+      confidence: 0.89,
+      evidenceRounds: ["R1", "R2", "R4"],
     },
     observed: [45, 38, 30, 25],
     paths: commonPaths,
@@ -265,6 +304,21 @@ export const scenarios: Record<Exclude<LumiScenarioKey, "challenge">, LumiInsigh
       strategy: "明确禁忌边界，停止推销，给低风险替代与专业咨询建议",
       confidence: 0.95,
     },
+    archaeology: {
+      turns: [
+        { round: "R1", speaker: "消费者", quote: "怀孕 5 个月，这款 A 醇还能用吗", score: 62, state: "stable" },
+        { round: "R2", speaker: "客服", quote: "可以介绍同系列温和产品", score: 55, state: "friction" },
+        { round: "R3", speaker: "消费者", quote: "我不是要你推荐贵的", score: 49, state: "turning" },
+        { round: "R4", speaker: "消费者", quote: "只想确认对宝宝安不安全", score: 46, state: "escalation" },
+      ],
+      turningPoint: { round: "R3", from: 55, to: 49, trigger: "安全咨询被误读为购买意向" },
+      rootCause: "信息目标错位：消费者要确定性安全边界，系统却提前进入销售推荐。",
+      causalChain: ["孕期不确定", "寻求安全确认", "销售意图误判", "防御上升"],
+      avoid: "先推荐替代 SKU，或用“通常没问题”弱化风险。",
+      prescription: "先回答禁忌边界与证据来源，再提供非销售性的替代成分清单。",
+      confidence: 0.94,
+      evidenceRounds: ["R1", "R3", "R4"],
+    },
     observed: [62, 55, 49, 46],
     paths: [
       { key: "a", label: "继续讲功效", scores: [39, 31, 25], probability: 18, tone: "danger" },
@@ -318,6 +372,21 @@ export const scenarios: Record<Exclude<LumiScenarioKey, "challenge">, LumiInsigh
     ],
     perception: { intent: "效果投诉 / 不良反应核验", emotion: "愤怒 + 失望", intensity: 0.82, skin: "油痘肌 · 活跃爆痘", product: "精华 · 连续使用 7 天", risk: "red", riskLabel: "高风险" },
     subtext: { surface: "质疑产品宣传并表达失望", emotion: "愤怒 0.82 · 被欺骗感 0.71", hidden: "希望品牌承认体验落差，而不是继续解释或推销", strategy: "先确认具体变化和时间线，再进入安全核验与售后路径", confidence: 0.9 },
+    archaeology: {
+      turns: [
+        { round: "R1", speaker: "消费者", quote: "用了七天爆了一脸痘", score: 58, state: "stable" },
+        { round: "R2", speaker: "客服", quote: "可能是正常适应期", score: 48, state: "friction" },
+        { round: "R3", speaker: "消费者", quote: "是不是虚假宣传", score: 37, state: "turning" },
+        { round: "R4", speaker: "消费者", quote: "真的很失望，白花钱了", score: 29, state: "escalation" },
+      ],
+      turningPoint: { round: "R3", from: 48, to: 37, trigger: "“正常适应期”回避了真实不良体验" },
+      rootCause: "消费者的核心冲突是体验证据被否定，进而形成被欺骗感。",
+      causalChain: ["连续使用爆痘", "体验被弱化", "宣传可信度坍塌", "投诉升级"],
+      avoid: "解释“排毒期”或重复宣传卖点。",
+      prescription: "承认体验事实，停止产品，核验症状与批次，并给出明确售后路径。",
+      confidence: 0.91,
+      evidenceRounds: ["R1", "R2", "R3", "R4"],
+    },
     observed: [58, 48, 37, 29],
     paths: commonPaths,
     recommendationReason: "继续解释功效会放大被欺骗感；应先承认体验落差并核验症状。",
@@ -342,6 +411,21 @@ export const scenarios: Record<Exclude<LumiScenarioKey, "challenge">, LumiInsigh
     ],
     perception: { intent: "送礼选品", emotion: "期待 + 犹豫", intensity: 0.58, skin: "送礼对象 · 暖黄皮待确认", product: "口红 · 稳妥显气色", risk: "green", riskLabel: "增长机会" },
     subtext: { surface: "询问适合妈妈的口红", emotion: "期待 0.58 · 怕失礼 0.51", hidden: "希望礼物显得用心而不是单纯昂贵，并降低选错色号风险", strategy: "用场合、肤色和预算缩小范围，给主推与可替换选项", confidence: 0.88 },
+    archaeology: {
+      turns: [
+        { round: "R1", speaker: "消费者", quote: "想送妈妈一支口红", score: 60, state: "stable" },
+        { round: "R2", speaker: "消费者", quote: "怕颜色太年轻，也怕显黑", score: 64, state: "friction" },
+        { round: "R3", speaker: "客服", quote: "确认预算和包装偏好", score: 69, state: "repair" },
+        { round: "R4", speaker: "消费者", quote: "预算 400，包装要体面", score: 72, state: "repair" },
+      ],
+      turningPoint: { round: "R3", from: 64, to: 69, trigger: "客服从热门色推荐转向送礼场景澄清" },
+      rootCause: "购买阻力不是预算，而是担心礼物不合适、显得不用心。",
+      causalChain: ["送礼期待", "选错色焦虑", "场景追问", "决策信心回升"],
+      avoid: "只按销量推荐热门色号。",
+      prescription: "给主推与可替换色，并说明场合、肤色和礼赠包装的匹配依据。",
+      confidence: 0.87,
+      evidenceRounds: ["R1", "R2", "R4"],
+    },
     observed: [60, 64, 69, 72],
     paths: [
       { key: "a", label: "只推热门色", scores: [68, 64, 59], probability: 39, tone: "danger" },
@@ -370,6 +454,21 @@ export const scenarios: Record<Exclude<LumiScenarioKey, "challenge">, LumiInsigh
     ],
     perception: { intent: "效果不达预期", emotion: "失望 + 怀疑", intensity: 0.74, skin: "干性肌 · 观察周期不足", product: "抗老精华 · 使用 14 天", risk: "yellow", riskLabel: "信任风险" },
     subtext: { surface: "质疑效果与宣传", emotion: "失望 0.74 · 被欺骗感 0.62", hidden: "期待品牌正面回应价值落差，并给可验证而非空泛的下一步", strategy: "承认落差、校准周期、核对用法并提供售后兜底", confidence: 0.91 },
+    archaeology: {
+      turns: [
+        { round: "R1", speaker: "消费者", quote: "用了两周一点变化都没有", score: 66, state: "stable" },
+        { round: "R2", speaker: "客服", quote: "抗老产品需要坚持使用", score: 58, state: "friction" },
+        { round: "R3", speaker: "消费者", quote: "感觉就是白花钱", score: 50, state: "turning" },
+        { round: "R4", speaker: "消费者", quote: "宣传是不是都只是话术", score: 43, state: "escalation" },
+      ],
+      turningPoint: { round: "R3", from: 58, to: 50, trigger: "周期解释缺少可验证目标与售后兜底" },
+      rootCause: "信任下降源于价值落差不可验证，不是消费者不了解功效周期。",
+      causalChain: ["效果未达预期", "重复周期解释", "价值感下降", "宣传可信度质疑"],
+      avoid: "再次重复产品卖点或笼统要求继续坚持。",
+      prescription: "承认落差，核对用法，约定可观测指标与复盘时间，并说明售后兜底。",
+      confidence: 0.9,
+      evidenceRounds: ["R1", "R2", "R3", "R4"],
+    },
     observed: [66, 58, 50, 43],
     paths: [
       { key: "a", label: "重复产品卖点", scores: [36, 28, 20], probability: 20, tone: "danger" },
@@ -442,11 +541,29 @@ export function insightFromRun(
   const risk = severity === "CRITICAL" || severity === "HIGH" ? "red" : severity === "MEDIUM" ? "yellow" : template.perception.risk;
   const riskLabel = risk === "red" ? "高风险" : risk === "yellow" ? "需关注" : "常规";
   const now = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const transcript = input.text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const transcriptMessages: DemoMessage[] = transcript.map((line, index) => {
+    const isAgent = /^(客服|坐席|agent)\s*[:：]/i.test(line);
+    const text = line.replace(/^(客户|消费者|客服|坐席|agent)\s*[:：]\s*/i, "");
+    return {
+      by: isAgent ? "agent" : "consumer",
+      text,
+      time: `${now.split(":")[0]}:${String((Number(now.split(":")[1]) + index) % 60).padStart(2, "0")}`,
+    };
+  });
+  const hasHistory = transcriptMessages.length >= 3;
+  const challengeTurns: ArchaeologyTurn[] = transcriptMessages.map((message, index) => ({
+    round: `R${index + 1}`,
+    speaker: message.by === "agent" ? "客服" : "消费者",
+    quote: message.text,
+    score: template.archaeology.turns[Math.min(index, template.archaeology.turns.length - 1)]?.score ?? Math.max(20, 68 - index * 10),
+    state: index === 0 ? "stable" : index === transcriptMessages.length - 1 ? "escalation" : index === Math.min(2, transcriptMessages.length - 1) ? "turning" : "friction",
+  }));
   return {
     ...template,
     scenarioKey: "challenge",
     title: "现场开放挑战 · 实时分析",
-    messages: [{ by: "consumer", text: input.text, time: now }],
+    messages: transcriptMessages.length ? transcriptMessages : [{ by: "consumer", text: input.text, time: now }],
     perception: {
       ...template.perception,
       intent: keepVerticalInterpretation
@@ -464,6 +581,27 @@ export function insightFromRun(
         ? template.subtext.hidden
         : result?.triage.implicit_goal ?? template.subtext.hidden,
     },
+    archaeology: hasHistory
+      ? {
+          ...template.archaeology,
+          turns: challengeTurns,
+          turningPoint: {
+            ...template.archaeology.turningPoint,
+            round: challengeTurns.find((turn) => turn.state === "turning")?.round ?? "R2",
+          },
+          evidenceRounds: challengeTurns.filter((turn) => turn.speaker === "消费者").map((turn) => turn.round).slice(0, 4),
+          confidence: Math.min(template.archaeology.confidence, 0.72 + transcriptMessages.length * 0.03),
+        }
+      : {
+          ...template.archaeology,
+          turns: challengeTurns,
+          turningPoint: { round: "—", from: 0, to: 0, trigger: "当前只有单轮输入，无法定位真实情绪转折点" },
+          rootCause: "证据不足：至少需要 3 轮带角色标记的会话，才能进行时序因果诊断。",
+          causalChain: ["单轮输入", "缺少历史事件", "不输出伪因果"],
+          prescription: "请补充此前的消费者与客服对话，再生成根因与处方。",
+          confidence: 0.38,
+          evidenceRounds: challengeTurns.map((turn) => turn.round),
+        },
     scripts: result && !keepVerticalInterpretation
       ? [
           { label: "Harness 建议 · 推荐", text: result.copilot.draft_reply, score: result.review.approved ? 88 : 62 },

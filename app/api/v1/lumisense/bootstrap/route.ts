@@ -43,6 +43,11 @@ export async function GET(request: Request) {
         knowledge: {
           beauty_scenarios: 12,
           emotion_turning_points: 5,
+          emotion_archaeology: {
+            input: "multi_turn_conversation",
+            output: ["turning_point", "causal_chain", "root_cause", "prescription"],
+            minimum_turns: 3,
+          },
           ingredients: "50+",
           brands: 7,
         },

@@ -32,11 +32,13 @@ test("server-renders the LumiSense empathy workbench with an honest runtime mode
   const html = await response.text();
   assert.match(html, /<title>LumiSense 感光 \| 欧莱雅美妆 AI 共情管家<\/title>/i);
   assert.match(html, /LumiSense/);
-  assert.match(html, /潜台词 X 光片/);
+  assert.match(html, /情绪考古师/);
+  assert.match(html, /多轮时序因果诊断/);
+  assert.match(html, /潜台词摘要/);
   assert.match(html, /未来 3 轮情绪预言/);
   assert.match(html, /三轴匹配/);
   assert.match(html, /JUDGE CHALLENGE/);
-  assert.match(html, /现场分析/);
+  assert.match(html, /运行时序诊断/);
   assert.match(html, /SAFE FALLBACK/);
   assert.match(html, /风险预警/);
   assert.match(html, /V2.0/);
