@@ -27,6 +27,7 @@ import {
   Badge,
   Button,
   ConfigProvider,
+  Modal,
   Progress,
   Select,
   Tag,
@@ -38,10 +39,13 @@ import {
   approveCase,
   CAREPULSE_API_ENABLED,
   getEvaluationReport,
+  getEvolutionSummary,
+  reviewEvolutionFeedback,
   startRun,
   submitLumiSenseFeedback,
   updateBrandPersona,
   type EvaluationReport,
+  type EvolutionSummary,
   type RunInput,
 } from "./lib/carepulse-api";
 import {
@@ -144,12 +148,18 @@ function RoleGate({ role, allow, children }: { role: LumiRole; allow: LumiRole[]
 
 function RuntimeProof({ insight, running, activeNode }: { insight: LumiInsight; running: boolean; activeNode: string }) {
   const live = insight.runtime.model_mode === "LIVE_MODEL";
+  const harnessOnline = insight.runtime.harness === "EDGE_D1" && insight.runtime.fallback_reason !== "awaiting_runtime";
+  const fallbackLabel = insight.runtime.fallback_reason === "api_key_not_configured"
+    ? "确定性策略 · 未配置模型密钥"
+    : insight.runtime.fallback_reason
+      ? `确定性策略 · ${insight.runtime.fallback_reason}`
+      : `${insight.runtime.harness} · ${insight.runtime.model}`;
   return (
     <div className="runtime-proof">
-      <span className={`runtime-dot ${running ? "is-running" : live ? "is-live" : "is-fallback"}`} />
+      <span className={`runtime-dot ${running ? "is-running" : live || harnessOnline ? "is-live" : "is-fallback"}`} />
       <div>
-        <b>{running ? "AGENTLOOP RUNNING" : live ? "LIVE MODEL" : "SAFE FALLBACK"}</b>
-        <small>{running ? activeNode || "正在规划子 Agent" : `${insight.runtime.harness} · ${insight.runtime.model}`}</small>
+        <b>{running ? "HARNESS RUNNING" : live ? "LIVE MODEL + HARNESS" : harnessOnline ? "EDGE HARNESS ONLINE" : "DEMO PREVIEW"}</b>
+        <small>{running ? activeNode || "正在推进状态机" : live ? `${insight.runtime.model} · 独立审查` : fallbackLabel}</small>
       </div>
     </div>
   );
@@ -462,7 +472,12 @@ function HarnessCard({ insight, selectedActions, onActions, onApprove, canApprov
   const actionIds = insight.riskSignals.length ? ["ESCALATE_PRODUCT_SAFETY", "NOTIFY_DUTY_MANAGER"] : [];
   return (
     <article className="harness-card insight-card">
-      <SectionHead eyebrow="AGENT HARNESS" title="AgentLoop · 可回放执行" extra={<Tag>{insight.trace.length} 个节点</Tag>} />
+      <SectionHead eyebrow="AGENT HARNESS · 不是单次 Prompt" title="AgentLoop · 可回放、可中断、可审计" extra={<Tag>{insight.trace.length} 个节点</Tag>} />
+      <div className="harness-definition">
+        <div><span>ORCHESTRATE</span><b>状态机编排</b><small>每一步有明确输入、输出与状态迁移</small></div>
+        <div><span>GUARDRAIL</span><b>证据与独立审查</b><small>缺证据、安全红线或越权即中断</small></div>
+        <div><span>EXECUTE</span><b>人工门 + Outbox</b><small>副作用必须批准，并具备幂等与重试</small></div>
+      </div>
       <div className="loop-strip">
         {['SENSE', 'THINK', 'ACT', 'OBSERVE', 'REFLECT'].map((step, index) => <span key={step}><i>{index + 1}</i>{step}</span>)}
       </div>
@@ -482,6 +497,7 @@ function HarnessCard({ insight, selectedActions, onActions, onApprove, canApprov
         ))}
         <Button disabled={!canApprove || !actionIds.length || !selectedActions.length} onClick={onApprove}>批准受控动作</Button>
       </div>
+      <p className="rerun-explainer"><ReloadOutlined />“重跑此场景”会把同一份会话、消费者、订单与产品上下文重新提交给在线 Harness，生成新的运行记录；不是刷新页面或播放预设动画。</p>
     </article>
   );
 }
@@ -519,11 +535,63 @@ function InsightPanel({ insight, running, activeNode, onUse, onFeedback, selecte
 
 function ChallengeBar({ onRun, running }: { onRun: (input: RunInput) => void; running: boolean }) {
   const [value, setValue] = useState("消费者：用了两周一点变化都没有，上次客服说再等等。\n客服：抗老产品需要坚持使用，建议继续观察。\n消费者：上次也是这么说，你们到底解决过吗？\n客服：我可以再给您介绍一下产品功效。\n消费者：算了，我觉得就是白花钱。\n消费者：你们宣传是不是都只是话术？");
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [consumerName, setConsumerName] = useState("林小姐");
+  const [scenarioKey, setScenarioKey] = useState<Exclude<LumiScenarioKey, "challenge">>("expectation");
+  const [brand, setBrand] = useState("Kiehl's 科颜氏");
+  const [skinType, setSkinType] = useState("干性肌");
+  const [personality, setPersonality] = useState("失望型");
+  const [concern, setConcern] = useState("抗老效果不达预期");
+  const [productId, setProductId] = useState("SERUM_HA30");
+  const [orderId, setOrderId] = useState("");
+  const [contactCount, setContactCount] = useState(2);
+  const [promiseOverdue, setPromiseOverdue] = useState(true);
+
+  const runStudio = () => {
+    onRun({
+      conversation_id: `studio_${Date.now()}`,
+      customer_id: `custom_${consumerName.trim() || "consumer"}`,
+      text: value,
+      scenario_key: scenarioKey,
+      consumer_name: consumerName,
+      brand,
+      skin_type: skinType,
+      personality,
+      concern,
+      product_id: productId || undefined,
+      order_id: orderId.trim() || undefined,
+      contact_count: contactCount,
+      previous_promise_overdue: promiseOverdue,
+    });
+    setStudioOpen(false);
+  };
   return (
     <section className="challenge-bar">
       <div className="challenge-label"><span>JUDGE CHALLENGE · MULTI-TURN</span><b>粘贴 3 轮以上完整会话</b><small>按“消费者：/ 客服：”分行，运行时序因果诊断</small></div>
       <textarea value={value} onChange={(event) => setValue(event.target.value)} aria-label="评委多轮会话输入" />
-      <Button type="primary" loading={running} icon={<ThunderboltFilled />} onClick={() => onRun({ conversation_id: `judge_${Date.now()}`, customer_id: "judge_consumer", text: value })}>运行时序诊断</Button>
+      <div className="challenge-actions">
+        <Button loading={running} icon={<ThunderboltFilled />} onClick={() => onRun({ conversation_id: `judge_${Date.now()}`, customer_id: "judge_consumer", text: value })}>快速运行</Button>
+        <Button type="primary" icon={<UserOutlined />} onClick={() => setStudioOpen(true)}>自定义消费者与场景</Button>
+      </div>
+      <Modal open={studioOpen} onCancel={() => setStudioOpen(false)} footer={null} width={760} title="场景工作室 · 自定义一次完整 Harness 输入">
+        <div className="scenario-studio">
+          <div className="studio-intro"><ExperimentOutlined /><span><b>你定义业务上下文，Harness 负责运行</b><small>消费者画像与会话用于前台解释；订单、产品和历史承诺进入证据检索与风险规则。</small></span></div>
+          <div className="studio-grid">
+            <label><span>消费者称呼</span><input value={consumerName} onChange={(event) => setConsumerName(event.target.value)} /></label>
+            <label><span>场景类型</span><select value={scenarioKey} onChange={(event) => setScenarioKey(event.target.value as Exclude<LumiScenarioKey, "challenge">)}><option value="allergy">过敏急救</option><option value="pregnancy">孕期安全</option><option value="acne">爆痘投诉</option><option value="gift">送礼推荐</option><option value="expectation">效果落差</option></select></label>
+            <label><span>品牌</span><input value={brand} onChange={(event) => setBrand(event.target.value)} /></label>
+            <label><span>肤质／状态</span><input value={skinType} onChange={(event) => setSkinType(event.target.value)} /></label>
+            <label><span>消费者性格</span><input value={personality} onChange={(event) => setPersonality(event.target.value)} /></label>
+            <label><span>当前关注</span><input value={concern} onChange={(event) => setConcern(event.target.value)} /></label>
+            <label><span>产品证据</span><select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="SERUM_HA30">玻尿酸精华</option><option value="CREAM_B26C0719">修护面霜</option><option value="FOUNDATION_P120">粉底液</option><option value="">暂不指定</option></select></label>
+            <label><span>订单号（可选）</span><input value={orderId} placeholder="例如 ORDER_2088" onChange={(event) => setOrderId(event.target.value)} /></label>
+            <label><span>历史联系次数</span><input type="number" min={1} max={100} value={contactCount} onChange={(event) => setContactCount(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} /></label>
+            <label className="studio-check"><input type="checkbox" checked={promiseOverdue} onChange={(event) => setPromiseOverdue(event.target.checked)} /><span>存在已超时的历史承诺</span></label>
+          </div>
+          <label className="studio-transcript"><span>完整会话</span><textarea value={value} onChange={(event) => setValue(event.target.value)} /></label>
+          <div className="studio-footer"><span>公开演示只执行分析与反馈入队；高风险外部动作仍需受信身份审批。</span><Button type="primary" loading={running} onClick={runStudio}>创建并运行场景</Button></div>
+        </div>
+      </Modal>
     </section>
   );
 }
@@ -564,12 +632,18 @@ function Workspace({ role }: { role: LumiRole }) {
       setDraft(next.scripts[0].text);
       setLiveCaseId(result.case_id);
       setSelectedActions(result.copilot.recommended_actions.map((item) => item.action));
-      setNotice(result.review.approved ? "完整 Harness 运行完成，建议已通过独立审查。" : "审查未通过，已转人工复核且不会执行任何动作。");
-    } catch {
+      setNotice(
+        result.review.approved
+          ? result.runtime.model_mode === "LIVE_MODEL"
+            ? "在线 Harness 已完成：模型推理、证据检索与独立审查全部通过。"
+            : "在线 Edge Harness 已完成；当前未配置模型密钥，使用可审计的确定性策略与独立规则审查。"
+          : "审查未通过，已转人工复核且不会执行任何动作。",
+      );
+    } catch (error) {
       const fallback = insightFromRun(input);
       setInsight(fallback);
       setDraft(fallback.scripts[0].text);
-      setNotice("在线运行暂不可用，当前展示确定性安全回退；不会伪装成实时模型结果。");
+      setNotice(`在线 Harness 请求失败，已保留本地安全预览。${error instanceof Error ? `原因：${error.message.slice(0, 120)}` : ""}`);
     } finally {
       setRunning(false);
       setActiveNode("");
@@ -627,7 +701,7 @@ function Workspace({ role }: { role: LumiRole }) {
         <InsightPanel insight={insight} running={running} activeNode={activeNode} onUse={(text) => { setDraft(text); setNotice("建议已填入人工编辑区，发送前仍可修改。 "); }} onFeedback={(kind, verdict) => void recordFeedback(kind, verdict)} selectedActions={selectedActions} onActions={setSelectedActions} onApprove={approve} role={role} />
       </div>
       {scenarioKey !== "challenge" && (
-        <button className="rerun-fab" onClick={() => void run(scenarioInputs[scenarioKey])} disabled={running}><ReloadOutlined /> 用真实 Harness 重跑此场景</button>
+        <button className="rerun-fab" title="将当前预设场景提交给在线 Edge Harness，并生成新的可审计运行记录" onClick={() => void run(scenarioInputs[scenarioKey])} disabled={running}><ReloadOutlined /> 提交当前场景到在线 Harness</button>
       )}
     </main>
   );
@@ -727,23 +801,58 @@ function GrowthView({ role }: { role: LumiRole }) {
 
 function EvolutionView({ role }: { role: LumiRole }) {
   const [report, setReport] = useState<EvaluationReport | null>(null);
+  const [evolutionSummary, setEvolutionSummary] = useState<EvolutionSummary | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState("补充正确标签、期望输出或规则依据");
+  const [evolutionNotice, setEvolutionNotice] = useState("");
   const [brand, setBrand] = useState("lancome");
   const [keywords, setKeywords] = useState("优雅, 法式, 女性力量");
   const [brandStyle, setBrandStyle] = useState("精致、有温度");
   const [forbiddenWords, setForbiddenWords] = useState("亲, 宝宝, 家人们");
   const [configNotice, setConfigNotice] = useState("");
-  useEffect(() => { void getEvaluationReport().then(setReport).catch(() => undefined); }, []);
+  const refreshEvolution = () => void getEvolutionSummary().then(setEvolutionSummary).catch(() => undefined);
+  useEffect(() => {
+    void getEvaluationReport().then(setReport).catch(() => undefined);
+    refreshEvolution();
+  }, []);
+  const pendingCases = evolutionSummary?.recent.filter((item) => item.training_status === "PENDING_HUMAN_REVIEW") ?? [];
+  const reviewFeedback = async (feedbackId: string, decision: "approve" | "reject") => {
+    try {
+      const result = await reviewEvolutionFeedback({ feedbackId, decision, correction: reviewNote });
+      setEvolutionNotice(result.data.training_status === "VERIFIED" ? "已批准为训练候选，并写入审计日志。" : "已拒绝该候选，并写入审计日志。");
+      setReviewingId(null);
+      refreshEvolution();
+    } catch {
+      setEvolutionNotice("复核未完成：该反馈可能已被处理，或当前身份没有权限。");
+    }
+  };
   if (!['supervisor', 'admin'].includes(role)) return <main className="locked-view"><RoleGate role={role} allow={['supervisor', 'admin']}><span /></RoleGate></main>;
   return (
     <main className="evolution-view page-shell">
-      <section className="page-hero evolution-hero"><div><span className="eyebrow">SELF-EVOLUTION · HUMAN GOVERNED</span><h1>让每个 bad case 变成下一版能力</h1><p>Rubric 评测 → 人工复核 → 训练数据 → A/B 验证。Demo 展示闭环，不宣称已完成真实 SFT 或 Agentic RL。</p></div><Tag color="purple">V2.0 DATA FLYWHEEL</Tag></section>
+      <section className="page-hero evolution-hero"><div><span className="eyebrow">SELF-EVOLUTION · HUMAN GOVERNED</span><h1>让每个 bad case 变成下一版能力</h1><p>这里不是让模型自行修改自己，而是把反馈沉淀为可审计数据，经人工复核、回归评测和版本发布后再进化。</p></div><Tag color="purple">{evolutionSummary ? `${evolutionSummary.total_feedback} 条真实反馈` : 'DATA FLYWHEEL'}</Tag></section>
       <section className="flywheel">
-        {[['01', '交互数据', '会话、采纳、编辑与结果'], ['02', 'Rubric 评测', 'P0 硬规则 + P1/P2 质量'], ['03', '人工复核', '翻译错误、误报与不安全推荐'], ['04', '训练候选', 'SFT 数据集与版本评估']].map((item, index) => <div key={item[0]}><span>{item[0]}</span><b>{item[1]}</b><p>{item[2]}</p>{index < 3 && <ArrowRightOutlined />}</div>)}
+        {[['01', '交互反馈', `${evolutionSummary?.total_feedback ?? 0} 条已入库`], ['02', 'Bad case 队列', `${evolutionSummary?.pending_review ?? 0} 条待人工复核`], ['03', '训练候选', `${evolutionSummary?.verified ?? 0} 条已验证`], ['04', '回归与发布', '60 条基线守门']].map((item, index) => <div key={item[0]}><span>{item[0]}</span><b>{item[1]}</b><p>{item[2]}</p>{index < 3 && <ArrowRightOutlined />}</div>)}
       </section>
+      <section className="evolution-usage-guide">
+        <SectionHead eyebrow="HOW TO USE · 完整操作链" title="从自定义场景到能力进化" extra={<Tag color="green">7 STEPS</Tag>} />
+        <div className="usage-flow">
+          {[
+            ["01", "定义场景", "智能接待 → 自定义消费者与场景"],
+            ["02", "运行 Harness", "时序分析、证据检索、风险判断、独立审查"],
+            ["03", "人工决策", "编辑建议；高风险动作进入审批门"],
+            ["04", "反馈结果", "点击准确／需修正，写入反馈与审计日志"],
+            ["05", "复核 bad case", "在本页补充正确标签或期望输出"],
+            ["06", "形成候选", "批准后进入去标识化训练候选集"],
+            ["07", "评测发布", "先过 60 条回归，再由人发布新版本"],
+          ].map((item) => <div key={item[0]}><span>{item[0]}</span><b>{item[1]}</b><small>{item[2]}</small></div>)}
+        </div>
+        <p><SafetyCertificateOutlined /> 自进化 = 数据与策略版本持续改进；模型不能绕过人工复核、权限、回归指标或直接修改生产系统。</p>
+      </section>
+      {evolutionNotice && <div className="evolution-notice"><CheckCircleFilled />{evolutionNotice}</div>}
       <section className="evolution-grid">
         <article className="dashboard-card cold-start-card"><SectionHead eyebrow="COLD START FACTORY" title="无需真实数据也能完整演示" extra={<Tag color="green">READY</Tag>} /><div className="cold-stats">{coldStartStats.map((item) => <div key={item.label}><b>{item.value}</b><span>{item.label}</span></div>)}</div><p>覆盖 12 类美妆场景、5 类情绪拐点、50+ 成分规则和 7 个子品牌人设。所有人物与指标均为匿名化伪数据。</p></article>
         <article className="dashboard-card eval-card"><SectionHead eyebrow="ENGINEERING EVAL" title="60 条回归证据" extra={<Tag>{report ? `${report.methodology.cases} CASES` : 'LOADING'}</Tag>} /><div className="eval-metrics">{(report?.metrics ?? [{ key: 'risk', label: '高风险召回率', carepulse: 100, target: '100%' }, { key: 'citation', label: '证据引用有效率', carepulse: 100, target: '≥95%' }, { key: 'safe', label: '证据缺失安全失败', carepulse: 100, target: '100%' }]).slice(0, 5).map((metric) => <div key={metric.key}><span>{metric.label}</span><b>{metric.carepulse}%</b><Progress percent={metric.carepulse} showInfo={false} strokeColor="#0f6e56" /><em>目标 {metric.target}</em></div>)}</div><small>工程回归不等于欧莱雅真实业务 A/B；接入真实数据后需补盲测。</small></article>
-        <article className="dashboard-card badcase-card"><SectionHead eyebrow="BAD CASE QUEUE" title="待复核训练候选" extra={<Badge count={12} color="#ba7517" />} /><div className="badcase-list">{[['翻译错误', '“没事没事”被误判为中性', '高'], ['不安全推荐', '孕期场景出现视黄醇 SKU', '严重'], ['预警误报', '“包装红色”触发红肿规则', '中'], ['品牌偏差', '兰蔻话术出现“亲亲”', '中']].map((item) => <div key={item[1]}><Tag color={item[2] === '严重' ? 'red' : 'gold'}>{item[2]}</Tag><span><b>{item[0]}</b><small>{item[1]}</small></span><Button size="small">复核</Button></div>)}</div></article>
+        <article className="dashboard-card badcase-card"><SectionHead eyebrow="BAD CASE QUEUE · LIVE D1" title="待复核训练候选" extra={<Badge count={evolutionSummary?.pending_review ?? 0} color="#ba7517" />} /><div className="badcase-list">{pendingCases.length ? pendingCases.map((item) => <div key={item.id}><Tag color={item.verdict === 'inaccurate' ? 'red' : 'gold'}>{item.verdict === 'inaccurate' ? '需修正' : '部分准确'}</Tag><span><b>{item.feedback_type === 'prediction' ? '情绪预测反馈' : '潜台词辅助反馈'}</b><small>{item.conversation_id} · {item.training_status}</small></span><Button size="small" onClick={() => setReviewingId(item.id)}>复核</Button></div>) : <div className="badcase-empty"><CheckCircleFilled /><span><b>暂无待复核反馈</b><small>先在“智能接待”里对潜台词或预测点击“需修正”，这里会立即出现。</small></span></div>}</div>{reviewingId && <div className="review-workbench"><b>人工复核工作台</b><textarea value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} /><div><Button size="small" onClick={() => setReviewingId(null)}>取消</Button><Button size="small" danger onClick={() => void reviewFeedback(reviewingId, 'reject')}>拒绝候选</Button><Button size="small" type="primary" onClick={() => void reviewFeedback(reviewingId, 'approve')}>批准为训练候选</Button></div></div>}</article>
         <article className="dashboard-card rbac-card"><SectionHead eyebrow="RBAC · AUDIT" title="五级权限矩阵" extra={<Tag>{roleProfiles[role].level} 当前视图</Tag>} /><div className="permission-table"><div className="permission-row header"><span>能力</span>{(['viewer', 'agent_junior', 'agent_senior', 'supervisor', 'admin'] as LumiRole[]).map((item) => <b key={item}>{roleProfiles[item].level}</b>)}</div>{permissionMatrix.map((row) => <div className="permission-row" key={row.capability}><span>{row.capability}</span>{(['viewer', 'agent_junior', 'agent_senior', 'supervisor', 'admin'] as LumiRole[]).map((item) => <b key={item} className={row[item] ? 'yes' : 'no'}>{row[item] ? '✓' : '—'}</b>)}</div>)}</div></article>
         <article className="dashboard-card admin-config-card"><SectionHead eyebrow="ADMIN · BRAND PERSONA" title="品牌人设配置" extra={<Tag color={role === 'admin' ? 'purple' : 'default'}>{role === 'admin' ? '可编辑' : '主管只读'}</Tag>} /><label><span>品牌</span><Select value={brand} disabled={role !== 'admin'} onChange={setBrand} options={[['lancome', 'Lancôme 兰蔻'], ['loreal', "L'Oréal Paris 巴黎欧莱雅"], ['lrp', 'La Roche-Posay 理肤泉'], ['ysl', 'YSL 圣罗兰'], ['kiehls', "Kiehl's 科颜氏"], ['shu', 'Shu Uemura 植村秀'], ['maybelline', 'Maybelline 美宝莲']].map(([value, label]) => ({ value, label }))} /></label><label><span>人设关键词</span><input value={keywords} disabled={role !== 'admin'} onChange={(event) => setKeywords(event.target.value)} /></label><label><span>沟通风格</span><input value={brandStyle} disabled={role !== 'admin'} onChange={(event) => setBrandStyle(event.target.value)} /></label><label><span>禁用词</span><input value={forbiddenWords} disabled={role !== 'admin'} onChange={(event) => setForbiddenWords(event.target.value)} /></label><div className="config-actions"><small>{configNotice || '保存后写入配置表与审计日志；真实受信身份仍需具备 ADMIN。'}</small><Button type="primary" disabled={role !== 'admin'} onClick={() => void updateBrandPersona({ brand, keywords: keywords.split(',').map((item) => item.trim()).filter(Boolean), style: brandStyle, forbiddenWords: forbiddenWords.split(',').map((item) => item.trim()).filter(Boolean) }).then(() => setConfigNotice('品牌人设已更新并同步记录审计。')).catch(() => setConfigNotice('演示身份已切换，但当前受信服务端身份不是 ADMIN，未写入配置。'))}>保存并同步 Agent</Button></div></article>
         <article className="dashboard-card knowledge-card"><SectionHead eyebrow="BEAUTY KNOWLEDGE" title="行业知识图谱" /><div className="knowledge-layers">{[['L1', '12 类品类', '护肤 · 彩妆 · 个护'], ['L2', '6 类肤质', '中性 · 干油混合 · 敏感 · 痘肌'], ['L3', '50+ 成分', '活性 · 风险 · 修护 · 禁忌替代'], ['L4', '20+ 场景', '不良反应 · 选品 · 物流 · 权益'], ['L5', '5 类拐点', '恐慌 · 失望 · 焦虑 · 不满 · 怀疑']].map((item) => <div key={item[0]}><span>{item[0]}</span><b>{item[1]}</b><small>{item[2]}</small></div>)}</div></article>

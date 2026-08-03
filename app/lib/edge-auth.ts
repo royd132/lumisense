@@ -27,6 +27,7 @@ function decodedFullName(request: Request) {
 
 export async function principalForRequest(
   request: Request,
+  options: { allowPublicDemo?: boolean } = {},
 ): Promise<EdgePrincipal | null> {
   const authenticatedEmail = request.headers
     .get("oai-authenticated-user-email")
@@ -43,6 +44,17 @@ export async function principalForRequest(
   }
 
   const url = new URL(request.url);
+  if (
+    options.allowPublicDemo &&
+    (url.hostname.endsWith(".chatgpt.site") || url.hostname === "chatgpt.site")
+  ) {
+    return {
+      agentId: "public-demo",
+      email: "public-demo@lumisense.invalid",
+      displayName: "公开演示访客",
+      role: "AGENT",
+    };
+  }
   if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
     const email = (
       request.headers.get("x-agent-id") ?? "local_agent@example.test"

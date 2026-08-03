@@ -128,6 +128,77 @@ test("competition evaluation recomputes the 60-case report", async () => {
   assert.ok(report.slices.every((item) => item.passed === item.cases));
 });
 
+test("public Sites demo can run the bounded Edge Harness without privileged identity", async () => {
+  const origin = "https://lumisense-demo.example.chatgpt.site";
+  const acceptedResponse = await request("/api/v1/runs", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      conversation_id: `public_${crypto.randomUUID()}`,
+      customer_id: "public_consumer",
+      text: "消费者：用了两周没有效果。\n客服：请继续等待。\n消费者：上次也是这么说。",
+      scenario_key: "expectation",
+      consumer_name: "林小姐",
+      brand: "Kiehl's 科颜氏",
+      skin_type: "干性肌",
+      personality: "失望型",
+      concern: "效果落差",
+    }),
+  }, origin);
+  assert.equal(acceptedResponse.status, 202);
+  const accepted = await acceptedResponse.json();
+  let resultResponse;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    resultResponse = await request(`/api/v1/runs/${accepted.run_id}`, {}, origin);
+    if (resultResponse.status === 200) break;
+    assert.equal(resultResponse.status, 409);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(resultResponse.status, 200);
+  const result = await resultResponse.json();
+  assert.equal(result.runtime.harness, "EDGE_D1");
+  assert.equal(result.runtime.fallback_reason, "api_key_not_configured");
+});
+
+test("public Sites demo closes the governed evolution feedback loop", async () => {
+  const origin = "https://lumisense-demo.example.chatgpt.site";
+  const conversationId = `evolution_${crypto.randomUUID()}`;
+  const feedbackResponse = await request("/api/v1/subtext/feedback", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      feedback_type: "inaccurate",
+      feedback_text: "应更聚焦消费者对承诺失信的担忧",
+    }),
+  }, origin);
+  assert.equal(feedbackResponse.status, 200);
+  const feedback = await feedbackResponse.json();
+  assert.equal(feedback.data.training_status, "PENDING_HUMAN_REVIEW");
+
+  const summaryBefore = await request("/api/v1/evolution/summary", {}, origin);
+  assert.equal(summaryBefore.status, 200);
+  const before = await summaryBefore.json();
+  assert.ok(before.data.recent.some((item) => item.id === feedback.data.feedback_id));
+
+  const reviewResponse = await request(
+    `/api/v1/evolution/feedback/${feedback.data.feedback_id}/review`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        decision: "approve",
+        correction: "先承认上次承诺未兑现，再给出可核验的新节点。",
+      }),
+    },
+    origin,
+  );
+  assert.equal(reviewResponse.status, 200);
+  const reviewed = await reviewResponse.json();
+  assert.equal(reviewed.data.training_status, "VERIFIED");
+  assert.equal(reviewed.data.audited, true);
+});
+
 test("LumiSense bootstrap exposes PRD product strategy and cold-start scope", async () => {
   const response = await request("/api/v1/lumisense/bootstrap", {
     headers: authHeaders(),

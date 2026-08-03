@@ -38,11 +38,13 @@ test("server-renders the LumiSense empathy workbench with an honest runtime mode
   assert.match(html, /未来 3 轮情绪预言/);
   assert.match(html, /三轴匹配/);
   assert.match(html, /JUDGE CHALLENGE/);
-  assert.match(html, /运行时序诊断/);
-  assert.match(html, /SAFE FALLBACK/);
+  assert.match(html, /AgentLoop/);
+  assert.match(html, /DEMO PREVIEW/);
+  assert.match(html, /自定义消费者与场景/);
+  assert.match(html, /不是单次 Prompt/);
   assert.match(html, /风险预警/);
   assert.match(html, /V2.0/);
-  assert.match(html, /正在验证运行时/);
+  assert.match(html, /提交当前场景到在线 Harness/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
 
@@ -59,7 +61,9 @@ test("keeps REST, SSE and explicit action approval in the client contract", asyn
   assert.match(api, /approved_action_ids/);
   assert.doesNotMatch(api, /X-Agent-(?:Id|Role)/);
   assert.match(page, /type="checkbox"/);
-  assert.match(page, /确定性安全回退/);
+  assert.match(page, /EDGE HARNESS ONLINE/);
+  assert.match(page, /api_key_not_configured/);
   assert.match(page, /submitLumiSenseFeedback/);
+  assert.match(page, /getEvolutionSummary/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@tanstack\/react-query/);
 });

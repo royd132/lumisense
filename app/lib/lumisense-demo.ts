@@ -533,7 +533,7 @@ export function insightFromRun(
   input: RunInput,
   result?: ApiAnalysis,
 ): LumiInsight {
-  const matchedKey = scenarioForText(input.text);
+  const matchedKey = input.scenario_key ?? scenarioForText(input.text);
   const template = scenarios[matchedKey];
   const keepVerticalInterpretation =
     result?.triage.intent === "PRODUCT_INQUIRY" && matchedKey !== "allergy";
@@ -562,7 +562,15 @@ export function insightFromRun(
   return {
     ...template,
     scenarioKey: "challenge",
-    title: "现场开放挑战 · 实时分析",
+    title: `${input.concern || template.title} · 自定义运行`,
+    consumer: {
+      ...template.consumer,
+      name: input.consumer_name?.trim() || template.consumer.name,
+      skinType: input.skin_type?.trim() || template.consumer.skinType,
+      personality: input.personality?.trim() || template.consumer.personality,
+      concern: input.concern?.trim() || template.consumer.concern,
+    },
+    brand: input.brand?.trim() || template.brand,
     messages: transcriptMessages.length ? transcriptMessages : [{ by: "consumer", text: input.text, time: now }],
     perception: {
       ...template.perception,

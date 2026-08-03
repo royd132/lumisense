@@ -87,6 +87,28 @@ export type RunInput = {
   product_id?: string;
   contact_count?: number;
   previous_promise_overdue?: boolean;
+  scenario_key?: "allergy" | "pregnancy" | "acne" | "gift" | "expectation";
+  consumer_name?: string;
+  brand?: string;
+  skin_type?: string;
+  personality?: string;
+  concern?: string;
+};
+
+export type EvolutionSummary = {
+  total_feedback: number;
+  pending_review: number;
+  verified: number;
+  rejected: number;
+  by_type: { feedback_type: string; count: number }[];
+  recent: {
+    id: string;
+    conversation_id: string;
+    feedback_type: string;
+    verdict: string;
+    training_status: string;
+    created_at: string;
+  }[];
 };
 
 export type EvaluationReport = {
@@ -262,6 +284,29 @@ export async function getEvaluationReport() {
   return json<EvaluationReport>(
     await fetch(`${CAREPULSE_API_URL}/api/v1/evaluation`, {
       cache: "no-store",
+    }),
+  );
+}
+
+export async function getEvolutionSummary() {
+  const payload = await json<{ code: number; data: EvolutionSummary }>(
+    await fetch(`${CAREPULSE_API_URL}/api/v1/evolution/summary`, {
+      cache: "no-store",
+    }),
+  );
+  return payload.data;
+}
+
+export async function reviewEvolutionFeedback(input: {
+  feedbackId: string;
+  decision: "approve" | "reject";
+  correction?: string;
+}) {
+  return json<{ code: number; data: { feedback_id: string; training_status: string; audited: boolean } }>(
+    await fetch(`${CAREPULSE_API_URL}/api/v1/evolution/feedback/${input.feedbackId}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision: input.decision, correction: input.correction }),
     }),
   );
 }

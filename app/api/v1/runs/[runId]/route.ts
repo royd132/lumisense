@@ -5,7 +5,7 @@ export async function GET(
   const { canReadAllCases, principalForRequest } = await import(
     "../../../../lib/edge-auth"
   );
-  const principal = await principalForRequest(request);
+  const principal = await principalForRequest(request, { allowPublicDemo: true });
   if (!principal) {
     return Response.json(
       { detail: "authenticated identity required" },

@@ -3,7 +3,7 @@ import { principalForRequest } from "../../../lib/edge-auth";
 
 export async function POST(request: Request) {
   try {
-    const principal = await principalForRequest(request);
+    const principal = await principalForRequest(request, { allowPublicDemo: true });
     if (!principal) {
       return Response.json(
         { detail: "authenticated identity required" },
@@ -30,7 +30,12 @@ export async function POST(request: Request) {
           input.contact_count < 1 ||
           input.contact_count > 100)) ||
       (input.previous_promise_overdue !== undefined &&
-        typeof input.previous_promise_overdue !== "boolean")
+        typeof input.previous_promise_overdue !== "boolean") ||
+      (input.scenario_key !== undefined &&
+        !["allergy", "pregnancy", "acne", "gift", "expectation"].includes(input.scenario_key)) ||
+      [input.consumer_name, input.brand, input.skin_type, input.personality, input.concern].some(
+        (value) => value !== undefined && (typeof value !== "string" || value.length > 80),
+      )
     ) {
       return Response.json({ detail: "invalid run input" }, { status: 422 });
     }

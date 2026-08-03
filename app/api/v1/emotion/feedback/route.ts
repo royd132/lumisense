@@ -3,7 +3,7 @@ import { principalForRequest } from "../../../../lib/edge-auth";
 const VERDICTS = new Set(["accurate", "partially", "inaccurate"]);
 
 export async function POST(request: Request) {
-  const principal = await principalForRequest(request);
+  const principal = await principalForRequest(request, { allowPublicDemo: true });
   if (!principal) {
     return Response.json(
       { code: 40001, message: "需要登录后访问", data: null },

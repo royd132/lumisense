@@ -13,11 +13,12 @@ LumiSense 是面向欧莱雅美妆客服场景的 AI 共情管家：用数据让
 ### 强制产出 1：智能接待辅助插件
 
 - 五个可直接演示的美妆场景：过敏急救、孕期安全、爆痘投诉、送礼推荐、效果落差
+- 场景工作室：可自行设置消费者姓名、场景类型、品牌、肤质、性格、核心诉求、订单证据与完整多轮会话
 - 评委开放输入：任意消费者原话都进入同一 Run、SSE、Trace 与人工审批链路
 - 实时三轴感知：情绪、皮肤状态、产品与成分信号
 - 两条可编辑共情建议，一键填入人工回复区
 - 高风险场景默认禁止销售推荐，优先安全处置
-- 明确区分 `LIVE MODEL` 与 `SAFE FALLBACK`，不伪装模型运行
+- 明确区分 `LIVE MODEL + HARNESS`、`EDGE HARNESS ONLINE` 与 `DEMO PREVIEW`，不伪装模型运行
 
 ### 强制产出 2：风险异常预警看板
 
@@ -46,7 +47,20 @@ LumiSense 是面向欧莱雅美妆客服场景的 AI 共情管家：用数据让
 - 人工审批门 + Transactional Outbox，Agent 不直接执行副作用
 - 潜台词/预测反馈写入 `lumisense_feedback`
 - 所有反馈写操作同步写入 `audit_log`，包含 `user_role` 与 `trace_id`
-- bad case 进入人工复核队列；产品不宣称已经完成真实 SFT 或 Agentic RL
+- bad case 进入人工复核队列，经修正、批准或驳回后形成受治理训练候选
+- 产品不宣称模型会在生产流量中自行改写权重；“自进化”指反馈数据、规则/Prompt 版本、回归集和发布门禁的闭环
+
+## 完整演示流程
+
+1. 在“智能接待”点击“自定义消费者与场景”，填写消费者画像、业务上下文与多轮会话。
+2. 点击“运行场景”，输入会提交到在线 Edge Harness；顶部运行徽标和 AgentLoop Trace 展示状态机进度。
+3. 查看情绪考古师的转折点/根因链、情绪预言家的未来三轮预测、证据卡与独立 Review。
+4. 采纳或编辑建议；涉及赔付、升级等副作用时，必须经过人工审批门与 Outbox。
+5. 在建议卡点击“准确 / 部分准确 / 需修正”，反馈写入 D1 并留下审计记录。
+6. 将右上角色切换为“AI 管理员”或“客服主管”，进入“进化中心”。
+7. 在 Bad Case 复核台填写正确表达并批准为训练候选，或驳回脏数据；随后用 60 条回归集验证版本再发布。
+
+“Harness 重跑此场景”不是刷新页面：它会把当前完整输入重新提交给 Sense → Think → Act → Observe → Reflect 状态机，生成一个新的、可回放和可审计的 Run。
 
 ## RBAC
 
@@ -76,6 +90,8 @@ Demo 展示口径：50 个消费者画像、200 条历史会话、30 条预警�
 - `GET /api/v1/risk/dashboard`：服务端 RBAC 风险看板；viewer 数据脱敏
 - `POST /api/v1/subtext/feedback`：潜台词翻译反馈与审计
 - `POST /api/v1/emotion/feedback`：情绪预测反馈与审计
+- `GET /api/v1/evolution/summary`：进化闭环实时计数与最近反馈
+- `POST /api/v1/evolution/feedback/{feedback_id}/review`：人工修正并批准/驳回训练候选
 - `GET /api/v1/eval/training-data`：仅 AI 管理员导出训练候选
 - `GET/PUT /api/v1/admin/brand`：仅 AI 管理员读取/更新品牌人设并审计
 - `GET /api/v1/evaluation`：在线复算 60 条工程回归案例
