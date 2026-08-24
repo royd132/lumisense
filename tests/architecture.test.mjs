@@ -35,6 +35,10 @@ test("feature boundaries keep domain and browser code free of Worker persistence
   const browserClient = await source("app/features/harness/api/client.ts");
   assert.doesNotMatch(skillDomain, /cloudflare:workers|D1Database/);
   assert.doesNotMatch(browserClient, /cloudflare:workers|D1Database/);
+
+  const controller = await source("app/features/workbench/hooks/useWorkbenchController.ts");
+  assert.doesNotMatch(controller, /from ["'][^"']*components\//);
+  assert.doesNotMatch(controller, /from ["']antd|@ant-design\/icons/);
 });
 
 test("large product modules remain bounded and named by responsibility", async () => {
@@ -53,5 +57,29 @@ test("large product modules remain bounded and named by responsibility", async (
   for (const path of modules) {
     const moduleSource = await source(path);
     assert.ok(lines(moduleSource) <= 800, `${path} exceeded the 800-line architecture budget`);
+  }
+
+  const workspace = await source("app/features/workbench/components/Workspace.tsx");
+  assert.ok(lines(workspace) <= 80, "Workspace must remain a composition root");
+  const controller = await source("app/features/workbench/hooks/useWorkbenchController.ts");
+  assert.ok(lines(controller) <= 180, "workbench controller exceeded its state-management budget");
+});
+
+test("global styles remain a thin ordered manifest with bounded domain files", async () => {
+  const manifest = await source("app/globals.css");
+  assert.ok(lines(manifest) <= 12, "app/globals.css must only order domain styles");
+  for (const path of [
+    "app/styles/foundation.css",
+    "app/styles/workbench-shell.css",
+    "app/styles/workbench-insights.css",
+    "app/styles/product-shell.css",
+    "app/styles/risk.css",
+    "app/styles/growth.css",
+    "app/styles/evolution.css",
+    "app/styles/access.css",
+    "app/styles/responsive.css",
+  ]) {
+    const stylesheet = await source(path);
+    assert.ok(lines(stylesheet) <= 1000, `${path} exceeded the 1000-line style budget`);
   }
 });

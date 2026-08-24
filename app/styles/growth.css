@@ -1,0 +1,116 @@
+.growth-hero {
+  border-color: #cfe6de;
+  background: #f4fbf8;
+}
+
+.hero-score {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+  padding-left: 24px;
+  border-left: 1px solid #b9d9cd;
+}
+
+.hero-score > b {
+  color: var(--empathy);
+  font-size: 52px;
+  line-height: 1;
+}
+
+.hero-score > span {
+  display: flex;
+  flex-direction: column;
+  font-weight: 700;
+}
+
+.hero-score small {
+  color: #698277;
+  font-size: 9px;
+}
+
+.growth-grid {
+  display: grid;
+  grid-template-columns: 0.9fr 1.25fr 0.95fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.growth-radar,
+.growth-curve {
+  height: 310px;
+}
+
+.legend-line {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  color: #777181;
+  font-size: 9px;
+}
+
+.legend-line i {
+  display: inline-block;
+  width: 16px;
+  margin-right: 4px;
+  border-top: 2px dashed #aaa3bd;
+}
+
+.legend-line i.mine {
+  border-color: var(--empathy);
+  border-style: solid;
+}
+
+.coach-callout {
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: var(--empathy);
+  background: var(--empathy-soft);
+}
+
+.coach-callout span {
+  display: flex;
+  flex-direction: column;
+}
+
+.coach-callout p {
+  margin-top: 3px;
+  color: #4d675f;
+  font-size: 9px;
+}
+
+.before-after > span {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  color: #fff;
+  background: #928b9c;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.before-after > span:nth-of-type(2) {
+  background: var(--empathy);
+}
+
+.before-after p {
+  margin: 7px 0 13px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f7f5f9;
+  font-size: 10px;
+}
+
+.before-after > .anticon {
+  display: block;
+  color: var(--purple);
+  transform: rotate(90deg);
+}
+
+.coaching-card .ant-btn {
+  margin-top: 18px;
+}
+

@@ -35,7 +35,10 @@ app/
 │  └─ SectionHead.tsx
 ├─ features/
 │  ├─ shell/LumiSenseApp.tsx         # 角色、导航和页面组合
-│  ├─ workbench/components/          # 智能接待与 Harness 操作
+│  ├─ workbench/
+│  │  ├─ components/                 # 会话、聊天、洞察卡和场景工作室
+│  │  ├─ hooks/                      # 在线运行、审批、反馈等界面控制状态
+│  │  └─ domain/                     # 预设场景顺序与展示元数据
 │  ├─ risk/components/               # 消费者风险预警
 │  ├─ growth/components/             # 共情成长
 │  ├─ evolution/components/          # 进化中心
@@ -50,6 +53,8 @@ app/
 │     ├─ domain/                     # 纯 Skill Artifact 与影子切片
 │     └─ server/                     # D1 版本、Promotion、审计
 ├─ lib/                              # 兼容 facade；禁止重新堆业务
+├─ styles/                           # 按产品域拆分的全局样式
+├─ globals.css                       # 仅维护样式加载顺序
 └─ page.tsx                          # 六行框架入口
 ```
 
@@ -73,10 +78,12 @@ domain ─X→ HTTP / D1 / Cloudflare runtime
 - Next 页面和兼容 facade 必须保持薄；
 - Skill domain 与浏览器客户端不得导入 D1 或 Worker Runtime；
 - 主要模块设置 800 行上限，防止重新生成巨型“万能文件”；
+- `Workspace` 必须保持为 80 行以内的组合根，控制 Hook 不得反向依赖 UI；
+- `globals.css` 必须保持为薄清单，每个领域样式文件不得超过 1000 行；
 - 原有 60 条回归、D1、RBAC、审批和 Skill Promotion 测试继续作为行为守门。
 
 ## 6. 后续重构边界
 
 - `edge-harness.ts` 下一步可继续拆出确定性分析器和证据提供器，但应以新增真实证据源为触发条件，避免只为目录美观继续抽象。
-- `globals.css` 仍较大；下一次视觉功能开发时，按 `workbench / risk / evolution` 迁移为 CSS Modules，当前不在无视觉变更的架构重构中机械拆分。
+- 工作台已拆为组合根、展示组件、控制 Hook 与场景配置；样式也按 `workbench shell / insights / risk / growth / evolution` 切分。后续新增视觉功能应直接进入对应样式域，不再写回统一大文件。
 - Python Profile 已有相对清晰的 `harness / orchestrator / retrieval / store / worker` 分层，本轮不做无收益的目录搬迁。

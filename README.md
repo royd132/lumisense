@@ -286,14 +286,16 @@ lumisense/
 │  ├─ components/                  # 图表、权限门、品牌标识等共享 UI
 │  ├─ features/
 │  │  ├─ shell/                    # 导航、角色与页面组合
-│  │  ├─ workbench/ risk/ growth/  # 产品能力垂直切片
+│  │  ├─ workbench/                # 薄组合根、展示组件、控制 Hook、场景配置
+│  │  ├─ risk/ growth/             # 产品能力垂直切片
 │  │  ├─ evolution/                # 反馈复核与进化中心
 │  │  ├─ harness/                  # 类型化客户端、Run 编排、模型适配器
 │  │  ├─ actions/ analytics/       # 审批 Outbox 与持久化看板
 │  │  └─ skill-evolution/          # 纯 Skill domain + D1 Promotion 服务
 │  ├─ lib/                         # 兼容 facade；不再承载业务实现
 │  ├─ page.tsx                     # 薄 Next.js 页面入口
-│  ├─ globals.css                  # 产品样式
+│  ├─ styles/                      # foundation、工作台、洞察、风险、成长、进化样式域
+│  ├─ globals.css                  # 仅声明样式加载顺序
 │  └─ layout.tsx                   # 站点元数据
 ├─ backend/
 │  ├─ app/

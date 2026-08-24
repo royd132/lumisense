@@ -49,14 +49,17 @@ test("server-renders the LumiSense empathy workbench with an honest runtime mode
 });
 
 test("keeps REST, SSE and explicit action approval in the client contract", async () => {
-  const [workbench, evolution, risk, api, packageJson] = await Promise.all([
+  const [workbench, insightPanel, insightCards, controller, evolution, risk, api, packageJson] = await Promise.all([
     readFile(new URL("../app/features/workbench/components/Workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/features/workbench/components/InsightPanel.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/features/workbench/components/InsightCards.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/features/workbench/hooks/useWorkbenchController.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/features/evolution/components/EvolutionView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/features/risk/components/RiskDashboard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/features/harness/api/client.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
-  const productSource = [workbench, evolution, risk].join("\n");
+  const productSource = [workbench, insightPanel, insightCards, controller, evolution, risk].join("\n");
 
   assert.match(api, /NEXT_PUBLIC_CAREPULSE_API_URL/);
   assert.match(api, /NEXT_PUBLIC_CAREPULSE_API_ENABLED/);

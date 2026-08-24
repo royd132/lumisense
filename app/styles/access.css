@@ -1,0 +1,37 @@
+.role-gate,
+.locked-view {
+  display: grid;
+  place-items: center;
+}
+
+.locked-view {
+  min-height: calc(100vh - 105px);
+}
+
+.role-gate {
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  max-width: 430px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.gate-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--purple);
+  background: var(--purple-soft);
+  font-size: 19px;
+}
+
+.role-gate p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}

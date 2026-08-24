@@ -1,0 +1,376 @@
+@media (max-width: 1280px) {
+  .app-header {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .north-star,
+  .active-user > span,
+  .brand-lockup span,
+  .primary-nav button span {
+    display: none;
+  }
+
+  .primary-nav {
+    justify-content: center;
+  }
+
+  .primary-nav button {
+    min-width: 48px;
+    justify-content: center;
+  }
+
+  .role-select {
+    width: 150px;
+  }
+
+  .workspace-grid {
+    grid-template-columns: 210px minmax(390px, 0.92fr) minmax(430px, 1.08fr);
+  }
+
+  .sense-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 1060px) {
+  .workspace-grid {
+    grid-template-columns: 190px minmax(390px, 1fr);
+    grid-template-rows: auto;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .insight-panel {
+    grid-column: 1 / -1;
+    min-height: 720px;
+    border-top: 1px solid var(--line);
+  }
+
+  .conversation-rail,
+  .chat-stage {
+    min-height: 760px;
+    max-height: 760px;
+  }
+
+  .dashboard-grid.consumer-risk-grid,
+  .growth-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .coaching-card {
+    grid-column: 1 / -1;
+  }
+
+  .usage-flow {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 780px) {
+  .app-header {
+    grid-template-columns: 1fr auto;
+    min-height: 60px;
+    padding: 0 12px;
+  }
+
+  .primary-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    justify-content: space-around;
+    height: 58px;
+    background: #fff;
+    border-top: 1px solid var(--line);
+  }
+
+  .primary-nav button {
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding: 6px 2px;
+    font-size: 16px;
+  }
+
+  .primary-nav button span {
+    display: block;
+    font-size: 8px;
+  }
+
+  .primary-nav button::after {
+    top: 0;
+    bottom: auto;
+  }
+
+  .role-select {
+    width: 128px;
+  }
+
+  .active-user {
+    display: none;
+  }
+
+  .philosophy-rail {
+    gap: 6px;
+    padding: 0 10px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .philosophy-rail em {
+    display: none;
+  }
+
+  .challenge-bar {
+    grid-template-columns: 1fr auto;
+    padding: 10px 12px;
+  }
+
+  .challenge-label {
+    grid-column: 1 / -1;
+  }
+
+  .challenge-actions {
+    flex-direction: row;
+  }
+
+  .studio-grid,
+  .harness-definition {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .usage-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .public-data-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .public-data-actions {
+    justify-content: flex-start;
+  }
+
+  .public-source-proof,
+  .public-loop-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .public-loop-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-grid {
+    display: block;
+    max-height: none;
+  }
+
+  .conversation-rail {
+    min-height: 0;
+    max-height: none;
+    padding: 10px;
+    overflow-x: auto;
+  }
+
+  .rail-heading,
+  .search-field,
+  .knowledge-mini,
+  .queue-groups > span {
+    display: none;
+  }
+
+  .queue-groups {
+    flex-direction: row;
+    min-width: max-content;
+  }
+
+  .conversation-item {
+    width: 170px;
+  }
+
+  .chat-stage {
+    min-height: 720px;
+    max-height: 720px;
+  }
+
+  .consumer-actions .ant-btn {
+    display: none;
+  }
+
+  .profile-strip {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .profile-strip span:last-child {
+    display: none;
+  }
+
+  .insight-panel {
+    min-height: 0;
+    padding-bottom: 64px;
+  }
+
+  .insight-scroll {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .sense-card,
+  .archaeology-card,
+  .scripts-card,
+  .harness-card {
+    grid-column: auto;
+  }
+
+  .archaeology-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .script-list,
+  .trace-list {
+    grid-template-columns: 1fr;
+  }
+
+  .approval-gate {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .page-shell {
+    width: calc(100% - 24px);
+    padding-bottom: 80px;
+  }
+
+  .page-hero {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 20px;
+  }
+
+  .kpi-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .kpi-strip > div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .dashboard-grid.primary,
+  .dashboard-grid.consumer-risk-grid,
+  .growth-grid,
+  .evolution-grid,
+  .flywheel {
+    grid-template-columns: 1fr;
+  }
+
+  .coaching-card {
+    grid-column: auto;
+  }
+
+  .consumer-risk-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .risk-signal {
+    grid-column: 1 / -1;
+  }
+
+  .risk-score {
+    align-items: flex-start;
+  }
+
+  .flywheel > div > .anticon {
+    right: 50%;
+    bottom: -17px;
+    top: auto;
+    transform: translateX(50%) rotate(90deg);
+  }
+
+  .cold-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .rerun-fab {
+    right: 12px;
+    bottom: 70px;
+  }
+}
+
+@media (max-width: 460px) {
+  .brand-lockup > .ant-tag,
+  .challenge-label small,
+  .consumer-identity p,
+  .runtime-proof small {
+    display: none;
+  }
+
+  .role-select {
+    width: 112px;
+  }
+
+  .challenge-bar textarea {
+    height: 58px;
+  }
+
+  .challenge-actions {
+    flex-direction: column;
+  }
+
+  .usage-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .public-source-proof,
+  .public-loop-steps,
+  .shadow-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .skill-version-compare {
+    grid-template-columns: 1fr;
+  }
+
+  .skill-version-compare > .anticon {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+
+  .promotion-gate {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .profile-strip {
+    display: none;
+  }
+
+  .chat-stage {
+    grid-template-rows: auto 1fr auto;
+  }
+
+  .sense-grid,
+  .eval-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .path-row {
+    grid-template-columns: 43px 1fr auto;
+  }
+
+  .path-row .ant-tag {
+    display: none;
+  }
+
+  .cold-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
