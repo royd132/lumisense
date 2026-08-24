@@ -125,7 +125,10 @@ test("competition evaluation recomputes the 60-case report", async () => {
   assert.equal(riskRecall.carepulse, 100);
   assert.equal(citationValidity.carepulse, 100);
   assert.equal(safeFailure.carepulse, 100);
-  assert.ok(report.slices.every((item) => item.passed === item.cases));
+  assert.ok(
+    report.slices.every((item) => item.passed === item.cases),
+    `unexpected regression slices: ${JSON.stringify(report.slices)}`,
+  );
 });
 
 test("public Sites demo can run the bounded Edge Harness without privileged identity", async () => {
@@ -197,6 +200,74 @@ test("public Sites demo closes the governed evolution feedback loop", async () =
   const reviewed = await reviewResponse.json();
   assert.equal(reviewed.data.training_status, "VERIFIED");
   assert.equal(reviewed.data.audited, true);
+});
+
+test("CC0 beauty reviews drive a versioned and audited Skill promotion", async () => {
+  const origin = "https://lumisense-demo.example.chatgpt.site";
+  const previewResponse = await request("/api/v1/evolution/public-data", {}, origin);
+  assert.equal(previewResponse.status, 200);
+  const preview = await previewResponse.json();
+  assert.equal(preview.data.loop.dataset.license, "CC0-1.0");
+  assert.equal(preview.data.loop.metrics.cases, 3);
+  assert.equal(preview.data.loop.metrics.baseline_safety_recall, 0);
+  assert.equal(preview.data.loop.metrics.candidate_safety_recall, 100);
+  assert.equal(preview.data.loop.management_decision.action, "MERGE");
+
+  const beforePromotion = await startRun({
+    text: "It literally burned my skin and it is now flaky and peeling.",
+    order_id: "ORDER_1024",
+    extra: {
+      product_id: "CREAM_B26C0719",
+      conversation_id: `conv_before_skill_promotion_${Date.now()}`,
+    },
+  });
+  const beforePromotionResult = await completedRun(beforePromotion.run_id);
+  assert.equal(beforePromotionResult.risk.severity, "LOW");
+  assert.ok(
+    beforePromotionResult.trace.every(
+      (item) => !item.tool_calls.includes("skill:product-safety-triage@1.1.0"),
+    ),
+  );
+
+  const runResponse = await request("/api/v1/evolution/public-data", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "run" }),
+  }, origin);
+  assert.equal(runResponse.status, 200);
+  const run = await runResponse.json();
+  assert.equal(run.data.status, "AWAITING_HUMAN_PROMOTION");
+
+  const promoteResponse = await request("/api/v1/evolution/public-data", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action: "promote", run_id: run.data.run_id }),
+  }, origin);
+  assert.equal(promoteResponse.status, 200);
+  const promoted = await promoteResponse.json();
+  assert.equal(promoted.data.status, "PROMOTED");
+  assert.equal(promoted.data.skill_version, "1.1.0");
+
+  const active = await db
+    .prepare("SELECT version, status FROM skill_artifacts WHERE skill_key = ? AND status = 'ACTIVE'")
+    .bind("product-safety-triage")
+    .first();
+  assert.equal(active.version, "1.1.0");
+  const audit = await db
+    .prepare("SELECT action FROM audit_log WHERE trace_id = ? ORDER BY created_at DESC LIMIT 1")
+    .bind(run.data.trace_id)
+    .first();
+  assert.equal(audit.action, "skill_evolution.promote");
+
+  const accepted = await startRun({
+    text: "It literally burned my skin and it is now flaky and peeling.",
+    order_id: "ORDER_1024",
+    extra: { product_id: "CREAM_B26C0719" },
+  });
+  const result = await completedRun(accepted.run_id);
+  assert.equal(result.risk.severity, "CRITICAL");
+  assert.ok(result.risk.signals.some((signal) => signal.includes("product-safety-triage@1.1.0")));
+  assert.ok(result.trace.some((item) => item.tool_calls.includes("skill:product-safety-triage@1.1.0")));
 });
 
 test("LumiSense bootstrap exposes PRD product strategy and cold-start scope", async () => {

@@ -220,3 +220,50 @@ export const lumisenseConfig = sqliteTable("lumisense_config", {
   updatedRole: text("updated_role").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const skillArtifacts = sqliteTable(
+  "skill_artifacts",
+  {
+    id: text("id").primaryKey(),
+    skillKey: text("skill_key").notNull(),
+    version: text("version").notNull(),
+    status: text("status").notNull(),
+    sourceType: text("source_type").notNull(),
+    sourceRefsJson: text("source_refs_json").notNull(),
+    artifactJson: text("artifact_json").notNull(),
+    parentId: text("parent_id"),
+    createdBy: text("created_by").notNull(),
+    createdRole: text("created_role").notNull(),
+    createdAt: text("created_at").notNull(),
+    promotedAt: text("promoted_at"),
+  },
+  (table) => [
+    uniqueIndex("skill_artifacts_key_version_uq").on(
+      table.skillKey,
+      table.version,
+    ),
+    index("skill_artifacts_status_idx").on(table.status, table.createdAt),
+  ],
+);
+
+export const skillEvolutionRuns = sqliteTable(
+  "skill_evolution_runs",
+  {
+    id: text("id").primaryKey(),
+    sourceDataset: text("source_dataset").notNull(),
+    status: text("status").notNull(),
+    baselineSkillId: text("baseline_skill_id").notNull(),
+    candidateSkillId: text("candidate_skill_id").notNull(),
+    managementDecisionJson: text("management_decision_json").notNull(),
+    metricsJson: text("metrics_json").notNull(),
+    traceId: text("trace_id").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdRole: text("created_role").notNull(),
+    createdAt: text("created_at").notNull(),
+    promotedAt: text("promoted_at"),
+  },
+  (table) => [
+    index("skill_evolution_runs_status_idx").on(table.status, table.createdAt),
+    index("skill_evolution_runs_trace_idx").on(table.traceId),
+  ],
+);

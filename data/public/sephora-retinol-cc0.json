@@ -1,0 +1,49 @@
+{
+  "dataset": {
+    "name": "Sephora Product Reviews",
+    "publisher": "Zeenb on Kaggle",
+    "source_url": "https://www.kaggle.com/datasets/zeeenb/sephora-product-reviews",
+    "license": "CC0-1.0",
+    "retrieved_on": "2026-08-24",
+    "source_file": "sephora/P439926.json",
+    "source_file_sha256": "53DF9DC67951C37DACD411BF695DBFE3F28C9933B868BB850039E3E277E0E321",
+    "source_record_count": 1232,
+    "selection_rule": "rating <= 1; contains explicit adverse skin-reaction language; three distinct public records",
+    "privacy_transform": "User nicknames, author IDs, photos, locations and social metadata were removed. Product and brand are represented only by the public product ID and generic category."
+  },
+  "records": [
+    {
+      "source_record_id": "208815211",
+      "source_product_id": "P439926",
+      "category": "retinol cream",
+      "rating": 1,
+      "skin_type": "Combination",
+      "submitted_at": "2022-05-13T15:40:56+08:00",
+      "recommended": false,
+      "title": "No Improvements - Destroyed Skin Barrier",
+      "review_excerpt": "After 3 months, I have seen absolutely no improvements. My skin looked dry, dull, flaky, red and distressed, and I broke out. My skin barrier felt destroyed."
+    },
+    {
+      "source_record_id": "186036663",
+      "source_product_id": "P439926",
+      "category": "retinol cream",
+      "rating": 1,
+      "skin_type": "Combination",
+      "submitted_at": "2021-08-23T10:53:48+08:00",
+      "recommended": false,
+      "title": "Unbalanced skin",
+      "review_excerpt": "Repeated use caused extremely unbalanced skin, rebound oiliness and unprecedented breakouts. The breakouts were very inflamed and painful and took days to settle."
+    },
+    {
+      "source_record_id": "183395649",
+      "source_product_id": "P439926",
+      "category": "retinol cream",
+      "rating": 1,
+      "skin_type": "Combination",
+      "submitted_at": "2021-07-10T00:50:30+08:00",
+      "recommended": false,
+      "title": "Try something else",
+      "review_excerpt": "It literally burned my skin and it is now flaky and peeling."
+    }
+  ]
+}

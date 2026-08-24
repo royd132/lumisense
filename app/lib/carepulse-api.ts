@@ -137,6 +137,82 @@ export type EvaluationReport = {
   claims: string[];
 };
 
+export type PublicDataSkillLoop = {
+  dataset: {
+    name: string;
+    publisher: string;
+    source_url: string;
+    license: string;
+    source_record_count: number;
+    selection_rule: string;
+    privacy_transform: string;
+  };
+  records: {
+    source_record_id: string;
+    title: string;
+    rating: number;
+    skin_type: string;
+    review_excerpt: string;
+    baseline: { detected: boolean; signals: string[]; route: string };
+    candidate: { detected: boolean; signals: string[]; route: string };
+  }[];
+  experience_gate: {
+    decision: string;
+    durable: boolean;
+    portable: boolean;
+    user_grounded: boolean;
+    evidence_count: number;
+    reason: string;
+  };
+  management_decision: {
+    action: string;
+    target_skill_id: string;
+    compared_axes: string[];
+    reason: string;
+  };
+  baseline_skill: { id: string; name: string; version: string; status: string; triggers: string[] };
+  candidate_skill: {
+    id: string;
+    name: string;
+    version: string;
+    status: string;
+    triggers: string[];
+    evidence_count: number;
+    rollback_version: string | null;
+    change_summary: string;
+  };
+  metrics: {
+    cases: number;
+    baseline_detected: number;
+    candidate_detected: number;
+    baseline_safety_recall: number;
+    candidate_safety_recall: number;
+    false_safe_before: number;
+    false_safe_after: number;
+    existing_regression_cases: number;
+    existing_regression_passed: number;
+    promotion_gate_passed: boolean;
+  };
+  lifecycle: { key: string; label: string; detail: string }[];
+};
+
+export type PublicDataSkillState = {
+  latest_run: {
+    id: string;
+    status: string;
+    trace_id: string;
+    created_at: string;
+    promoted_at: string | null;
+  } | null;
+  active_skill: {
+    id: string;
+    version: string;
+    status: string;
+    source_type: string;
+    promoted_at: string | null;
+  } | null;
+};
+
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.text();
@@ -292,6 +368,59 @@ export async function getEvolutionSummary() {
   const payload = await json<{ code: number; data: EvolutionSummary }>(
     await fetch(`${CAREPULSE_API_URL}/api/v1/evolution/summary`, {
       cache: "no-store",
+    }),
+  );
+  return payload.data;
+}
+
+export async function getPublicDataSkillLoop() {
+  const payload = await json<{
+    code: number;
+    data: { loop: PublicDataSkillLoop; state: PublicDataSkillState };
+  }>(
+    await fetch(`${CAREPULSE_API_URL}/api/v1/evolution/public-data`, {
+      cache: "no-store",
+    }),
+  );
+  return payload.data;
+}
+
+export async function runPublicDataSkillLoop() {
+  const payload = await json<{
+    code: number;
+    data: {
+      run_id: string;
+      trace_id: string;
+      status: string;
+      created_at: string;
+      loop: PublicDataSkillLoop;
+    };
+  }>(
+    await fetch(`${CAREPULSE_API_URL}/api/v1/evolution/public-data`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "run" }),
+    }),
+  );
+  return payload.data;
+}
+
+export async function promotePublicDataSkill(runId: string) {
+  const payload = await json<{
+    code: number;
+    data: {
+      run_id: string;
+      status: string;
+      skill_version: string;
+      trace_id: string;
+      promoted_at: string | null;
+      idempotent: boolean;
+    };
+  }>(
+    await fetch(`${CAREPULSE_API_URL}/api/v1/evolution/public-data`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "promote", run_id: runId }),
     }),
   );
   return payload.data;

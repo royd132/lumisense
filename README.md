@@ -136,17 +136,21 @@ LumiSense 的技术重点不是堆叠 Agent，而是将**多轮时序分析、�
 LumiSense 不宣称模型会在生产流量中自行修改权重。“自进化”具体指：
 
 ```text
-用户反馈
-  → Bad Case 入队
-  → 人工填写正确表达
-  → 批准 / 驳回
-  → 训练候选或回归案例
-  → 版本评估
-  → 发布门禁
-  → 新版本上线
+真实反馈或公开经验
+  → 经验复用性判断
+  → 与 SkillBank 最近邻比较
+  → CREATE / MERGE / DISCARD
+  → 版本化 Skill 候选
+  → 影子评测 + 60 条既有回归
+  → 人工 Promotion
+  → 上线、审计与回滚
 ```
 
-所有反馈写操作同步进入审计日志，记录角色、Trace ID 和复核状态。脏数据不能绕过人工复核直接进入训练候选。
+所有反馈写操作同步进入审计日志，记录角色、Trace ID 和复核状态。脏数据不能绕过人工复核直接进入训练候选；公开数据也只形成候选，未批准版本不会进入 Harness 主链路。
+
+进化中心内置一条可复现的公开数据闭环：从 [Sephora Product Reviews（CC0-1.0）](https://www.kaggle.com/datasets/zeeenb/sephora-product-reviews) 的 1,232 条视黄醇面霜评论中，按明确规则抽取 3 条已去身份化的一星安全信号记录。中文基线在该英文切片上的召回为 `0/3`，候选 Skill 为 `3/3`，并保持既有工程回归 `60/60`。这只是定向工程切片，不是商业效果或泛化能力声明。
+
+Skill 机制参考 [AutoSkill](https://arxiv.org/abs/2603.01145) 的经验抽取、混合检索和 add / merge / discard 双循环，同时补上论文未验证充分的生产治理：来源绑定、不可变版本、影子评测、人工发布门、审计和回滚。完整审阅见 [`docs/autoskill-paper-card.md`](./docs/autoskill-paper-card.md)。
 
 ---
 
@@ -160,6 +164,8 @@ LumiSense 不宣称模型会在生产流量中自行修改权重。“自进化�
 6. 对建议提交“准确 / 部分准确 / 需修正”反馈。
 7. 切换到“AI 管理员”或“客服主管”，进入“进化中心”。
 8. 在 Bad Case 复核台修正并批准训练候选，随后运行 60 条回归案例验证版本。
+9. 在“公开数据 × AutoSkill”实验区点击“运行完整闭环”，核对来源、MERGE 决策、版本差异和影子指标，再由人工点击“批准发布”。
+10. 发布后回到智能接待输入英文不良反应描述，Trace 会明确记录 `skill:product-safety-triage@1.1.0`；候选未发布时不会命中。
 
 “Harness 重跑此场景”不是刷新页面，而是将当前完整输入重新提交给状态机，创建一个新的、可回放和可审计的 Run。
 
@@ -412,6 +418,8 @@ docker compose up --build
 | `POST` | `/api/v1/emotion/feedback` | 情绪预测反馈与审计 |
 | `GET` | `/api/v1/evolution/summary` | 进化闭环计数与最近反馈 |
 | `POST` | `/api/v1/evolution/feedback/{feedback_id}/review` | 修正并批准或驳回训练候选 |
+| `GET` | `/api/v1/evolution/public-data` | 获取 CC0 数据闭环、Skill 候选和当前发布状态 |
+| `POST` | `/api/v1/evolution/public-data` | 运行影子评测或人工 Promotion，并写入版本与审计记录 |
 | `GET` | `/api/v1/eval/training-data` | AI 管理员导出训练候选 |
 
 ### 管理
@@ -463,6 +471,7 @@ python -m ruff check backend/app backend/tests backend/alembic
 - JWT、RBAC 与 Viewer 脱敏
 - 情绪和潜台词反馈审计
 - Bad Case、训练候选与复核门禁
+- CC0 公开数据来源、Skill MERGE、版本发布与 D1 审计
 - 人工审批与 Transactional Outbox
 - 60 条美妆工程回归案例
 - 服务端渲染与公开站点主流程
@@ -514,6 +523,8 @@ python -m ruff check backend/app backend/tests backend/alembic
 | --- | --- |
 | [`docs/lumisense-v2-prd-coverage.md`](./docs/lumisense-v2-prd-coverage.md) | LumiSense v2 PRD 需求、实现位置与验收方式 |
 | [`docs/requirements-coverage.md`](./docs/requirements-coverage.md) | CarePulse 工程基线、Harness、审批和生产 Profile 说明 |
+| [`docs/autoskill-paper-card.md`](./docs/autoskill-paper-card.md) | AutoSkill 16 节深读、证据边界与 LumiSense 改进映射 |
+| [`data/public/README.md`](./data/public/README.md) | CC0 样本选择规则、哈希、隐私处理和复现说明 |
 
 演示数据包含 50 个消费者画像、200 条历史会话、30 条风险事件、100 个 SKU、500 条订单和 7 个品牌人设，均为确定性比赛数据，不代表真实消费者或经营数据。
 

@@ -39,12 +39,17 @@ import {
   CAREPULSE_API_ENABLED,
   getEvaluationReport,
   getEvolutionSummary,
+  getPublicDataSkillLoop,
+  promotePublicDataSkill,
   reviewEvolutionFeedback,
+  runPublicDataSkillLoop,
   startRun,
   submitLumiSenseFeedback,
   updateBrandPersona,
   type EvaluationReport,
   type EvolutionSummary,
+  type PublicDataSkillLoop,
+  type PublicDataSkillState,
   type RunInput,
 } from "./lib/carepulse-api";
 import {
@@ -808,6 +813,10 @@ function GrowthView({ role }: { role: LumiRole }) {
 function EvolutionView({ role }: { role: LumiRole }) {
   const [report, setReport] = useState<EvaluationReport | null>(null);
   const [evolutionSummary, setEvolutionSummary] = useState<EvolutionSummary | null>(null);
+  const [publicLoop, setPublicLoop] = useState<PublicDataSkillLoop | null>(null);
+  const [publicLoopState, setPublicLoopState] = useState<PublicDataSkillState | null>(null);
+  const [publicLoopBusy, setPublicLoopBusy] = useState(false);
+  const [publicLoopNotice, setPublicLoopNotice] = useState("");
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("补充正确标签、期望输出或规则依据");
   const [evolutionNotice, setEvolutionNotice] = useState("");
@@ -819,6 +828,10 @@ function EvolutionView({ role }: { role: LumiRole }) {
   const refreshEvolution = () => void getEvolutionSummary().then(setEvolutionSummary).catch(() => undefined);
   useEffect(() => {
     void getEvaluationReport().then(setReport).catch(() => undefined);
+    void getPublicDataSkillLoop().then((result) => {
+      setPublicLoop(result.loop);
+      setPublicLoopState(result.state);
+    }).catch(() => undefined);
     refreshEvolution();
   }, []);
   const pendingCases = evolutionSummary?.recent.filter((item) => item.training_status === "PENDING_HUMAN_REVIEW") ?? [];
@@ -830,6 +843,55 @@ function EvolutionView({ role }: { role: LumiRole }) {
       refreshEvolution();
     } catch {
       setEvolutionNotice("复核未完成：该反馈可能已被处理，或当前身份没有权限。");
+    }
+  };
+  const runPublicLoop = async () => {
+    setPublicLoopBusy(true);
+    setPublicLoopNotice("正在执行导入、Skill 管理和影子评测…");
+    try {
+      const result = await runPublicDataSkillLoop();
+      setPublicLoop(result.loop);
+      setPublicLoopState({
+        active_skill: publicLoopState?.active_skill ?? null,
+        latest_run: {
+          id: result.run_id,
+          status: result.status,
+          trace_id: result.trace_id,
+          created_at: result.created_at,
+          promoted_at: null,
+        },
+      });
+      setPublicLoopNotice("影子闭环已完成：候选 v1.1.0 通过公开切片与 60 条回归，等待人工发布。");
+    } catch {
+      setPublicLoopNotice("公开数据闭环未完成，请稍后重试。");
+    } finally {
+      setPublicLoopBusy(false);
+    }
+  };
+  const promotePublicLoop = async () => {
+    if (!publicLoopState?.latest_run?.id) return;
+    setPublicLoopBusy(true);
+    try {
+      const result = await promotePublicDataSkill(publicLoopState.latest_run.id);
+      setPublicLoopState((current) => current ? {
+        active_skill: {
+          id: publicLoop?.candidate_skill.id ?? "skill_product_safety_triage_v1_1_0",
+          version: result.skill_version,
+          status: "ACTIVE",
+          source_type: "PUBLIC_CC0",
+          promoted_at: result.promoted_at,
+        },
+        latest_run: current.latest_run ? {
+          ...current.latest_run,
+          status: result.status,
+          promoted_at: result.promoted_at,
+        } : null,
+      } : current);
+      setPublicLoopNotice(`Skill ${result.skill_version} 已发布；Trace ${result.trace_id.slice(0, 18)}…，可回滚到 1.0.0。`);
+    } catch {
+      setPublicLoopNotice("发布未完成：请确认回归门禁和受信角色权限。");
+    } finally {
+      setPublicLoopBusy(false);
     }
   };
   if (!['supervisor', 'admin'].includes(role)) return <main className="locked-view"><RoleGate role={role} allow={['supervisor', 'admin']}><span /></RoleGate></main>;
@@ -855,6 +917,60 @@ function EvolutionView({ role }: { role: LumiRole }) {
         <p><SafetyCertificateOutlined /> 自进化 = 数据与策略版本持续改进；模型不能绕过人工复核、权限、回归指标或直接修改生产系统。</p>
       </section>
       {evolutionNotice && <div className="evolution-notice"><CheckCircleFilled />{evolutionNotice}</div>}
+      {publicLoop && <section className="public-data-lab">
+        <div className="public-data-head">
+          <div>
+            <span className="eyebrow">PUBLIC DATA × AUTOSKILL · REPRODUCIBLE LOOP</span>
+            <h2>用公开真实评论跑一次 Skill 进化闭环</h2>
+            <p>从 1,232 条公开记录中按固定规则抽取 3 条一星安全切片；原始评论不是客服对话，不伪装成真实会话。</p>
+          </div>
+          <div className="public-data-actions">
+            <Tag color="green">{publicLoop.dataset.license}</Tag>
+            <a href={publicLoop.dataset.source_url} target="_blank" rel="noreferrer">查看公开数据源</a>
+            <Button type="primary" icon={<ExperimentOutlined />} loading={publicLoopBusy} onClick={() => void runPublicLoop()}>运行完整闭环</Button>
+          </div>
+        </div>
+        <div className="public-source-proof">
+          <div><b>{publicLoop.metrics.cases}</b><span>去标识化样本<small>来自 {publicLoop.dataset.source_record_count.toLocaleString()} 条源记录</small></span></div>
+          <div><b>{publicLoop.experience_gate.evidence_count}</b><span>独立经验来源<small>durable · portable · user-grounded</small></span></div>
+          <div><b>{publicLoop.management_decision.action}</b><span>Skill 管理决策<small>同能力扩展，不重复创建</small></span></div>
+          <div><b>{publicLoop.candidate_skill.version}</b><span>候选版本<small>可回滚到 {publicLoop.candidate_skill.rollback_version}</small></span></div>
+        </div>
+        <div className="public-loop-steps">
+          {publicLoop.lifecycle.map((step, index) => <div key={step.key} className={publicLoopState?.latest_run ? 'complete' : index === 0 ? 'ready' : ''}><span>{String(index + 1).padStart(2, '0')}</span><b>{step.label}</b><small>{step.detail}</small></div>)}
+        </div>
+        {publicLoopNotice && <div className="public-loop-notice"><CheckCircleFilled />{publicLoopNotice}</div>}
+        <div className="public-loop-grid">
+          <article>
+            <div className="public-panel-title"><span><DatabaseOutlined /></span><div><b>公开风险切片</b><small>用户标识与社交字段已删除</small></div></div>
+            <div className="public-records">
+              {publicLoop.records.map((record) => <div key={record.source_record_id}>
+                <span className="record-rating">{record.rating}★</span>
+                <p>“{record.review_excerpt}”</p>
+                <div><Tag color={record.baseline.detected ? 'green' : 'red'}>v1.0 {record.baseline.detected ? '已识别' : '漏检'}</Tag><ArrowRightOutlined /><Tag color={record.candidate.detected ? 'green' : 'red'}>v1.1 {record.candidate.signals.join(' · ')}</Tag></div>
+              </div>)}
+            </div>
+          </article>
+          <article>
+            <div className="public-panel-title"><span><AuditOutlined /></span><div><b>Skill Artifact 差异</b><small>{publicLoop.management_decision.reason}</small></div></div>
+            <div className="skill-version-compare">
+              <div><Tag>ACTIVE</Tag><b>{publicLoop.baseline_skill.name} <em>v{publicLoop.baseline_skill.version}</em></b><small>中文触发：{publicLoop.baseline_skill.triggers.slice(0, 5).join(' · ')}</small></div>
+              <ArrowRightOutlined />
+              <div><Tag color={publicLoopState?.latest_run?.status === 'PROMOTED' ? 'green' : 'purple'}>{publicLoopState?.latest_run?.status === 'PROMOTED' ? 'ACTIVE' : 'CANDIDATE'}</Tag><b>{publicLoop.candidate_skill.name} <em>v{publicLoop.candidate_skill.version}</em></b><small>新增：burned · inflamed · flaky · peeling · breakout</small></div>
+            </div>
+            <div className="shadow-metrics">
+              <div><span>安全召回率</span><b>{publicLoop.metrics.baseline_safety_recall}% <ArrowRightOutlined /> {publicLoop.metrics.candidate_safety_recall}%</b></div>
+              <div><span>False-safe</span><b>{publicLoop.metrics.false_safe_before} <ArrowRightOutlined /> {publicLoop.metrics.false_safe_after}</b></div>
+              <div><span>既有回归</span><b>{publicLoop.metrics.existing_regression_passed}/{publicLoop.metrics.existing_regression_cases}</b></div>
+            </div>
+            <div className="promotion-gate">
+              <span><SafetyCertificateOutlined /></span>
+              <div><b>{publicLoopState?.latest_run?.status === 'PROMOTED' ? `v${publicLoop.candidate_skill.version} 已发布` : '等待人工 Promotion'}</b><small>公开数据只产生候选；通过影子评测也不能绕过人工门禁。发布后保留来源、Trace 与回滚版本。</small></div>
+              <Button type="primary" disabled={!publicLoopState?.latest_run || publicLoopState.latest_run.status === 'PROMOTED'} loading={publicLoopBusy} onClick={() => void promotePublicLoop()}>{publicLoopState?.latest_run?.status === 'PROMOTED' ? '已发布' : '批准发布'}</Button>
+            </div>
+          </article>
+        </div>
+      </section>}
       <section className="evolution-grid">
         <article className="dashboard-card cold-start-card"><SectionHead eyebrow="COLD START FACTORY" title="无需真实数据也能完整演示" extra={<Tag color="green">READY</Tag>} /><div className="cold-stats">{coldStartStats.map((item) => <div key={item.label}><b>{item.value}</b><span>{item.label}</span></div>)}</div><p>覆盖 12 类美妆场景、5 类情绪拐点、50+ 成分规则和 7 个子品牌人设。所有人物与指标均为匿名化伪数据。</p></article>
         <article className="dashboard-card eval-card"><SectionHead eyebrow="ENGINEERING EVAL" title="60 条回归证据" extra={<Tag>{report ? `${report.methodology.cases} CASES` : 'LOADING'}</Tag>} /><div className="eval-metrics">{(report?.metrics ?? [{ key: 'risk', label: '高风险召回率', carepulse: 100, target: '100%' }, { key: 'citation', label: '证据引用有效率', carepulse: 100, target: '≥95%' }, { key: 'safe', label: '证据缺失安全失败', carepulse: 100, target: '100%' }]).slice(0, 5).map((metric) => <div key={metric.key}><span>{metric.label}</span><b>{metric.carepulse}%</b><Progress percent={metric.carepulse} showInfo={false} strokeColor="#0f6e56" /><em>目标 {metric.target}</em></div>)}</div><small>工程回归不等于欧莱雅真实业务 A/B；接入真实数据后需补盲测。</small></article>

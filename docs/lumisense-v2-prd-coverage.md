@@ -81,6 +81,9 @@
 | 要求 | 状态 | 诚实边界 |
 | --- | --- | --- |
 | Rubric → bad case → 人工复核 → 训练候选 | ✅ | 页面飞轮 + 持久化反馈与训练导出接口 |
+| 公开经验 → Skill 候选 → 影子评测 → 人工发布 | ✅ | 3 条 CC0 安全评论、MERGE 决策、v1.0.0 → v1.1.0、D1 版本与 Trace 审计 |
+| Skill 只在 Promotion 后进入 Harness | ✅ | 主链路读取 D1 `ACTIVE` 版本；候选阶段仅做影子评测 |
+| AutoSkill 经验自进化映射 | ✅ 改进实现 | 保留经验抽取与 add / merge / discard；补来源绑定、60 条回归、人工门禁与回滚 |
 | 翻译反馈入训练集 | ✅ | `POST /api/v1/subtext/feedback` |
 | 预测反馈可追溯 | ✅ | `POST /api/v1/emotion/feedback` |
 | AI 管理员导出训练候选 | ✅ | `GET /api/v1/eval/training-data` |
@@ -94,6 +97,7 @@
 - 新增：`GET /api/v1/risk/dashboard`。
 - 新增：`POST /api/v1/subtext/feedback`。
 - 新增：`POST /api/v1/emotion/feedback`。
+- 新增：`GET/POST /api/v1/evolution/public-data`，运行公开数据 Skill 闭环和人工发布。
 - 新增：`GET /api/v1/eval/training-data`。
 - 新增：`GET/PUT /api/v1/admin/brand`，仅 AI 管理员可更新且写入审计日志。
 
