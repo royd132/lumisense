@@ -2,11 +2,37 @@
 
 LumiSense 是面向欧莱雅美妆客服场景的 AI 共情管家：用数据让 AI 从“辅助回答”升级为“辅助共情”，让客服从成本中心变成可量化、可治理的增长触点。
 
+[在线体验](https://lumisense-empathy-v2.blunder-dancing-3p.chatgpt.site/) · [PRD 落实清单](docs/lumisense-v2-prd-coverage.md) · [工程与 Harness 说明](docs/requirements-coverage.md)
+
+## 为什么是 LumiSense
+
+普通客服 Copilot 往往只处理“这一句话该怎么回”。LumiSense 把整段服务过程作为可回放的运行对象，同时分析消费者安全风险、情绪转折、历史失信与产品证据，并把建议送入人工审批、反馈复核和回归发布闭环。
+
+核心差异不是多一次 LLM 调用，而是**多轮时序因果分析 + 可审计 Agent Harness + 受治理的自进化流程**。
+
 产品按照 `prd-lumisense-v2-dev-ready-2026-08-02.md` 重构，核心闭环为：
 
 > Sense 感知 → Respond 回应 → Resolve 解决 → Measure 衡量
 
 逐条 PRD 映射与验收位置见 [`docs/lumisense-v2-prd-coverage.md`](docs/lumisense-v2-prd-coverage.md)。原 CarePulse 工程基线保留在 [`docs/requirements-coverage.md`](docs/requirements-coverage.md)，作为底层 Harness、审批和生产 Profile 的实现说明。
+
+## 架构总览
+
+```mermaid
+flowchart LR
+    A[消费者画像与多轮会话] --> B[Edge / Python Agent Harness]
+    B --> C[Sense<br/>情绪·皮肤·产品·风险]
+    C --> D[Think<br/>情绪考古·未来路径·证据检索]
+    D --> E[Act<br/>共情建议·安全处置]
+    E --> F[Observe<br/>独立 Review·Trace·评分]
+    F --> G{人工审批门}
+    G -->|批准| H[Transactional Outbox]
+    G -->|反馈/修正| I[Bad Case 复核]
+    I --> J[回归集与版本门禁]
+    J --> B
+```
+
+在线站点默认运行同源 Edge Harness；`backend/` 提供 FastAPI、LangGraph 风格编排、PostgreSQL、审批与独立 Worker 的生产参考实现。两条路径共享同一套安全边界和结构化结果契约。
 
 ## 当前产品能力
 
@@ -124,6 +150,20 @@ uvicorn app.main:app --reload --port 8000
 ```bash
 export CAREPULSE_JWT_SECRET="replace-with-a-long-random-secret"
 docker compose up --build
+```
+
+## 项目结构
+
+```text
+app/                    Next.js 产品界面与同源 API
+app/lib/                Edge Harness、模型运行时与确定性回退
+backend/app/            FastAPI 生产参考实现与 Agent 编排
+backend/tests/          API、鉴权、场景与 Harness 测试
+db/ + drizzle/          D1 数据模型与迁移
+worker/                 Cloudflare Worker 入口
+docs/                   PRD 覆盖与工程验收说明
+tests/                  Edge Harness 与渲染回归测试
+.openai/hosting.json    OpenAI Sites 部署配置
 ```
 
 ## 模型与安全边界
