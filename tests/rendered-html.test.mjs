@@ -49,27 +49,30 @@ test("server-renders the LumiSense empathy workbench with an honest runtime mode
 });
 
 test("keeps REST, SSE and explicit action approval in the client contract", async () => {
-  const [page, api, packageJson] = await Promise.all([
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/lib/carepulse-api.ts", import.meta.url), "utf8"),
+  const [workbench, evolution, risk, api, packageJson] = await Promise.all([
+    readFile(new URL("../app/features/workbench/components/Workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/features/evolution/components/EvolutionView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/features/risk/components/RiskDashboard.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/features/harness/api/client.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
+  const productSource = [workbench, evolution, risk].join("\n");
 
   assert.match(api, /NEXT_PUBLIC_CAREPULSE_API_URL/);
   assert.match(api, /NEXT_PUBLIC_CAREPULSE_API_ENABLED/);
   assert.match(api, /new EventSource/);
   assert.match(api, /approved_action_ids/);
   assert.doesNotMatch(api, /X-Agent-(?:Id|Role)/);
-  assert.match(page, /type="checkbox"/);
-  assert.match(page, /EDGE HARNESS ONLINE/);
-  assert.match(page, /api_key_not_configured/);
-  assert.match(page, /submitLumiSenseFeedback/);
-  assert.match(page, /getEvolutionSummary/);
-  assert.match(page, /runPublicDataSkillLoop/);
-  assert.match(page, /PUBLIC DATA × AUTOSKILL/);
-  assert.match(page, /批准发布/);
-  assert.match(page, /消费者风险预警中心/);
-  assert.match(page, /高风险消费者处置队列/);
-  assert.doesNotMatch(page, /坐席疲劳预警/);
+  assert.match(productSource, /type="checkbox"/);
+  assert.match(productSource, /EDGE HARNESS ONLINE/);
+  assert.match(productSource, /api_key_not_configured/);
+  assert.match(productSource, /submitLumiSenseFeedback/);
+  assert.match(productSource, /getEvolutionSummary/);
+  assert.match(productSource, /runPublicDataSkillLoop/);
+  assert.match(productSource, /PUBLIC DATA × AUTOSKILL/);
+  assert.match(productSource, /批准发布/);
+  assert.match(productSource, /消费者风险预警中心/);
+  assert.match(productSource, /高风险消费者处置队列/);
+  assert.doesNotMatch(productSource, /坐席疲劳预警/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@tanstack\/react-query/);
 });

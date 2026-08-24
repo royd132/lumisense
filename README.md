@@ -283,13 +283,16 @@ lumisense/
 │  │  ├─ health/                   # 健康检查
 │  │  ├─ internal/outbox/          # Outbox 内部处理入口
 │  │  └─ v1/                       # Runs、风险、反馈、评估、管理接口
-│  ├─ lib/
-│  │  ├─ edge-harness.ts           # Edge Agent Harness
-│  │  ├─ openai-runtime.ts         # 模型调用与结构化校验
-│  │  ├─ lumisense-demo.ts         # 场景与冷启动数据
-│  │  ├─ competition-eval.ts       # 60 条工程回归案例
-│  │  └─ carepulse-api.ts          # Python Profile 客户端
-│  ├─ page.tsx                     # LumiSense 产品主界面
+│  ├─ components/                  # 图表、权限门、品牌标识等共享 UI
+│  ├─ features/
+│  │  ├─ shell/                    # 导航、角色与页面组合
+│  │  ├─ workbench/ risk/ growth/  # 产品能力垂直切片
+│  │  ├─ evolution/                # 反馈复核与进化中心
+│  │  ├─ harness/                  # 类型化客户端、Run 编排、模型适配器
+│  │  ├─ actions/ analytics/       # 审批 Outbox 与持久化看板
+│  │  └─ skill-evolution/          # 纯 Skill domain + D1 Promotion 服务
+│  ├─ lib/                         # 兼容 facade；不再承载业务实现
+│  ├─ page.tsx                     # 薄 Next.js 页面入口
 │  ├─ globals.css                  # 产品样式
 │  └─ layout.tsx                   # 站点元数据
 ├─ backend/
@@ -523,6 +526,7 @@ python -m ruff check backend/app backend/tests backend/alembic
 | --- | --- |
 | [`docs/lumisense-v2-prd-coverage.md`](./docs/lumisense-v2-prd-coverage.md) | LumiSense v2 PRD 需求、实现位置与验收方式 |
 | [`docs/requirements-coverage.md`](./docs/requirements-coverage.md) | CarePulse 工程基线、Harness、审批和生产 Profile 说明 |
+| [`docs/architecture.md`](./docs/architecture.md) | 权威开源项目对照、目标分层、依赖方向和架构守门 |
 | [`docs/autoskill-paper-card.md`](./docs/autoskill-paper-card.md) | AutoSkill 16 节深读、证据边界与 LumiSense 改进映射 |
 | [`data/public/README.md`](./data/public/README.md) | CC0 样本选择规则、哈希、隐私处理和复现说明 |
 
